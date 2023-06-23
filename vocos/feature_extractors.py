@@ -2,9 +2,9 @@ from typing import List
 
 import torch
 import torchaudio
-from encodec import EncodecModel
 from torch import nn
 
+from vocos.mel_processing import spectrogram_torch, spec_to_mel_torch
 from vocos.modules import safe_log
 
 
@@ -39,13 +39,25 @@ class MelSpectrogramFeatures(FeatureExtractor):
             center=padding == "center",
             power=1,
         )
-
+        self.filter_length = n_fft
+        self.hop_length = hop_length
+        self.win_length = n_fft
+        self.mel_fmin = 0.0
+        self.mel_fmax = None
+        self.sampling_rate = sample_rate
+        self.n_mel_channels = n_mels
     def forward(self, audio, **kwargs):
-        if self.padding == "same":
-            pad = self.mel_spec.win_length - self.mel_spec.hop_length
-            audio = torch.nn.functional.pad(audio, (pad // 2, pad // 2), mode="reflect")
-        mel = self.mel_spec(audio)
-        features = safe_log(mel)
+        spec = spectrogram_torch(audio, self.filter_length,
+                                 self.sampling_rate, self.hop_length, self.win_length,
+                                 center=False)
+        mel = spec_to_mel_torch(
+            spec,
+            self.filter_length,
+            self.n_mel_channels,
+            self.sampling_rate,
+            self.mel_fmin,
+            self.mel_fmax)
+        features = mel
         return features
 
 
