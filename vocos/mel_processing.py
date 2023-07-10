@@ -111,10 +111,10 @@ class STFT():
 
 def get_mel(stft, wav_torch):
     with torch.no_grad():
-        mel_torch = stft.get_mel(wav_torch.unsqueeze(0)).squeeze(0).T
+        mel_torch = stft.get_mel(wav_torch)
         # log mel to log10 mel
-        mel_torch = 0.434294 * mel_torch.T
-        return mel_torch, wav_torch.unsqueeze(0)
+        mel_torch = 0.434294 * mel_torch
+        return mel_torch
 
 if __name__ == '__main__':
     mel, wav = get_mel("../../Downloads/api.wav", 16000, 80, 1024, 256, 80, 20, 11025)

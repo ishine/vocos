@@ -8,8 +8,8 @@ data:
       filelist_path: filelists/train.list
       sampling_rate: 44100
       num_samples: 32768
-      batch_size: 16
-      num_workers: 8
+      batch_size: 8
+      num_workers: 2
 
     val_params:
       filelist_path: filelists/val.list
