@@ -266,9 +266,10 @@ class VocosExp(pl.LightningModule):
         mel_loss = torch.stack([x["mel_loss"] for x in outputs]).mean()
         utmos_score = torch.stack([x["utmos_score"] for x in outputs]).mean()
         pesq_score = torch.stack([x["pesq_score"] for x in outputs]).mean()
-        periodicity_loss = np.array([x["periodicity_loss"] for x in outputs]).mean()
-        pitch_loss = np.array([x["pitch_loss"] for x in outputs]).mean()
-        f1_score = np.array([x["f1_score"] for x in outputs]).mean()
+        periodicity_loss = np.array([x["periodicity_loss"].cpu().numpy() for x in outputs]).mean()
+        pitch_loss = np.array([x["pitch_loss"].cpu().numpy() for x in outputs]).mean()
+        f1_score = np.array([x["f1_score"].cpu().numpy() for x in outputs]).mean()
+
 
         self.log("val_loss", avg_loss, sync_dist=True)
         self.log("val/mel_loss", mel_loss, sync_dist=True)
