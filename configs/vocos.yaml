@@ -5,14 +5,14 @@ data:
   class_path: vocos.dataset.VocosDataModule
   init_args:
     train_params:
-      filelist_path: ???
+      filelist_path: filelists/train.list
       sampling_rate: 44100
       num_samples: 32768
       batch_size: 16
       num_workers: 8
 
     val_params:
-      filelist_path: ???
+      filelist_path: filelists/val.list
       sampling_rate: 44100
       num_samples: 96768
       batch_size: 1
