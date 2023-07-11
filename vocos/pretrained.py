@@ -50,7 +50,7 @@ class Vocos(nn.Module):
         Class method to create a new Vocos model instance from hyperparameters stored in a yaml configuration file.
         """
         with open(config_path, "r") as f:
-            config = yaml.safe_load(f)
+            config = yaml.safe_load(f)['model']['init_args']
         feature_extractor = instantiate_class(args=(), init=config["feature_extractor"])
         backbone = instantiate_class(args=(), init=config["backbone"])
         head = instantiate_class(args=(), init=config["head"])
@@ -58,12 +58,10 @@ class Vocos(nn.Module):
         return model
 
     @classmethod
-    def from_pretrained(self, repo_id: str) -> "Vocos":
+    def from_pretrained(self, config_path, model_path) -> "Vocos":
         """
         Class method to create a new Vocos model instance from a pre-trained model stored in the Hugging Face model hub.
         """
-        config_path = hf_hub_download(repo_id=repo_id, filename="config.yaml")
-        model_path = hf_hub_download(repo_id=repo_id, filename="pytorch_model.bin")
         model = self.from_hparams(config_path)
         state_dict = torch.load(model_path, map_location="cpu")
         model.load_state_dict(state_dict)
