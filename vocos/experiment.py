@@ -250,8 +250,8 @@ class VocosExp(pl.LightningModule):
                 "val_pred", audio_pred.data.cpu().numpy(), self.global_step, self.hparams.sample_rate
             )
             with torch.no_grad():
-                mel = mel_processing.get_mel(self.feature_extractor.stft, audio_in[:1])[0]
-                mel_hat = mel_processing.get_mel(self.feature_extractor.stft, audio_pred[:1])[0]
+                mel = mel_processing.get_mel(self.feature_extractor.stft, audio_in.unsqueeze(0))[0]
+                mel_hat = mel_processing.get_mel(self.feature_extractor.stft, audio_pred.unsqueeze(0))[0]
             self.logger.experiment.add_image(
                 "val_mel_target",
                 plot_spectrogram_to_numpy(mel.data.cpu().numpy()),
