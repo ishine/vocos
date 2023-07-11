@@ -53,7 +53,7 @@ class VocosDataset(Dataset):
 
     def __getitem__(self, index: int) -> torch.Tensor:
         audio_path = self.filelist[index]
-        y, sr = load_wav_to_torch(audio_path, target_sr=24000)
+        y, sr = load_wav_to_torch(audio_path, target_sr=self.sampling_rate)
         y = y.unsqueeze(0)
 
         if y.size(-1) < self.num_samples:

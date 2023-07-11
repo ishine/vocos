@@ -6,6 +6,7 @@ import torch
 import torchaudio
 import transformers
 
+from vocos import mel_processing
 from vocos.discriminators import MultiPeriodDiscriminator, MultiResolutionDiscriminator
 from vocos.feature_extractors import FeatureExtractor
 from vocos.heads import FourierHead
@@ -170,8 +171,8 @@ class VocosExp(pl.LightningModule):
                     "train/audio_pred", audio_hat[0].data.cpu(), self.global_step, self.hparams.sample_rate
                 )
                 with torch.no_grad():
-                    mel = safe_log(self.melspec_loss.mel_spec(audio_input[0]))
-                    mel_hat = safe_log(self.melspec_loss.mel_spec(audio_hat[0]))
+                    mel = mel_processing.get_mel(self.feature_extractor.stft,audio_input[:1])[0]
+                    mel_hat = mel_processing.get_mel(self.feature_extractor.stft,audio_hat[:1])[0]
                 self.logger.experiment.add_image(
                     "train/mel_target",
                     plot_spectrogram_to_numpy(mel.data.cpu().numpy()),
@@ -248,11 +249,12 @@ class VocosExp(pl.LightningModule):
             self.logger.experiment.add_audio(
                 "val_pred", audio_pred.data.cpu().numpy(), self.global_step, self.hparams.sample_rate
             )
-            mel_target = safe_log(self.melspec_loss.mel_spec(audio_in))
-            mel_hat = safe_log(self.melspec_loss.mel_spec(audio_pred))
+            with torch.no_grad():
+                mel = mel_processing.get_mel(self.feature_extractor.stft, audio_in[:1])[0]
+                mel_hat = mel_processing.get_mel(self.feature_extractor.stft, audio_pred[:1])[0]
             self.logger.experiment.add_image(
                 "val_mel_target",
-                plot_spectrogram_to_numpy(mel_target.data.cpu().numpy()),
+                plot_spectrogram_to_numpy(mel.data.cpu().numpy()),
                 self.global_step,
                 dataformats="HWC",
             )
