@@ -4,7 +4,7 @@ import torch
 import yaml
 from huggingface_hub import hf_hub_download
 from torch import nn
-from vocos.feature_extractors import FeatureExtractor, EncodecFeatures
+from vocos.feature_extractors import FeatureExtractor
 from vocos.heads import FourierHead
 from vocos.models import Backbone
 
@@ -50,7 +50,7 @@ class Vocos(nn.Module):
         Class method to create a new Vocos model instance from hyperparameters stored in a yaml configuration file.
         """
         with open(config_path, "r") as f:
-            config = yaml.safe_load(f)
+            config = yaml.safe_load(f)['model']['init_args']
         feature_extractor = instantiate_class(args=(), init=config["feature_extractor"])
         backbone = instantiate_class(args=(), init=config["backbone"])
         head = instantiate_class(args=(), init=config["head"])
@@ -58,20 +58,12 @@ class Vocos(nn.Module):
         return model
 
     @classmethod
-    def from_pretrained(self, repo_id: str) -> "Vocos":
+    def from_pretrained(self, config_path, model_path) -> "Vocos":
         """
         Class method to create a new Vocos model instance from a pre-trained model stored in the Hugging Face model hub.
         """
-        config_path = hf_hub_download(repo_id=repo_id, filename="config.yaml")
-        model_path = hf_hub_download(repo_id=repo_id, filename="pytorch_model.bin")
         model = self.from_hparams(config_path)
         state_dict = torch.load(model_path, map_location="cpu")
-        if isinstance(model.feature_extractor, EncodecFeatures):
-            encodec_parameters = {
-                "feature_extractor.encodec." + key: value
-                for key, value in model.feature_extractor.encodec.state_dict().items()
-            }
-            state_dict.update(encodec_parameters)
         model.load_state_dict(state_dict)
         model.eval()
         return model
@@ -110,32 +102,3 @@ class Vocos(nn.Module):
         x = self.backbone(features_input, **kwargs)
         audio_output = self.head(x)
         return audio_output
-
-    @torch.inference_mode()
-    def codes_to_features(self, codes: torch.Tensor) -> torch.Tensor:
-        """
-        Transforms an input sequence of discrete tokens (codes) into feature embeddings using the feature extractor's
-        codebook weights.
-
-        Args:
-            codes (Tensor): The input tensor. Expected shape is (K, L) or (K, B, L),
-                            where K is the number of codebooks, B is the batch size and L is the sequence length.
-
-        Returns:
-            Tensor: Features of shape (B, C, L), where B is the batch size, C denotes the feature dimension,
-                    and L is the sequence length.
-        """
-        assert isinstance(
-            self.feature_extractor, EncodecFeatures
-        ), "Feature extractor should be an instance of EncodecFeatures"
-
-        if codes.dim() == 2:
-            codes = codes.unsqueeze(1)
-
-        n_bins = self.feature_extractor.encodec.quantizer.bins
-        offsets = torch.arange(0, n_bins * len(codes), n_bins, device=codes.device)
-        embeddings_idxs = codes + offsets.view(-1, 1, 1)
-        features = torch.nn.functional.embedding(embeddings_idxs, self.feature_extractor.codebook_weights).sum(dim=0)
-        features = features.transpose(1, 2)
-
-        return features

@@ -6,6 +6,7 @@ import torch
 import torchaudio
 import transformers
 
+from vocos import mel_processing
 from vocos.discriminators import MultiPeriodDiscriminator, MultiResolutionDiscriminator
 from vocos.feature_extractors import FeatureExtractor
 from vocos.heads import FourierHead
@@ -170,8 +171,8 @@ class VocosExp(pl.LightningModule):
                     "train/audio_pred", audio_hat[0].data.cpu(), self.global_step, self.hparams.sample_rate
                 )
                 with torch.no_grad():
-                    mel = safe_log(self.melspec_loss.mel_spec(audio_input[0]))
-                    mel_hat = safe_log(self.melspec_loss.mel_spec(audio_hat[0]))
+                    mel = mel_processing.get_mel(self.feature_extractor.stft,audio_input[:1])[0]
+                    mel_hat = mel_processing.get_mel(self.feature_extractor.stft,audio_hat[:1])[0]
                 self.logger.experiment.add_image(
                     "train/mel_target",
                     plot_spectrogram_to_numpy(mel.data.cpu().numpy()),
@@ -248,11 +249,12 @@ class VocosExp(pl.LightningModule):
             self.logger.experiment.add_audio(
                 "val_pred", audio_pred.data.cpu().numpy(), self.global_step, self.hparams.sample_rate
             )
-            mel_target = safe_log(self.melspec_loss.mel_spec(audio_in))
-            mel_hat = safe_log(self.melspec_loss.mel_spec(audio_pred))
+            with torch.no_grad():
+                mel = mel_processing.get_mel(self.feature_extractor.stft, audio_in.unsqueeze(0))[0]
+                mel_hat = mel_processing.get_mel(self.feature_extractor.stft, audio_pred.unsqueeze(0))[0]
             self.logger.experiment.add_image(
                 "val_mel_target",
-                plot_spectrogram_to_numpy(mel_target.data.cpu().numpy()),
+                plot_spectrogram_to_numpy(mel.data.cpu().numpy()),
                 self.global_step,
                 dataformats="HWC",
             )
@@ -266,9 +268,10 @@ class VocosExp(pl.LightningModule):
         mel_loss = torch.stack([x["mel_loss"] for x in outputs]).mean()
         utmos_score = torch.stack([x["utmos_score"] for x in outputs]).mean()
         pesq_score = torch.stack([x["pesq_score"] for x in outputs]).mean()
-        periodicity_loss = np.array([x["periodicity_loss"] for x in outputs]).mean()
-        pitch_loss = np.array([x["pitch_loss"] for x in outputs]).mean()
-        f1_score = np.array([x["f1_score"] for x in outputs]).mean()
+        periodicity_loss = np.array([x["periodicity_loss"].cpu().numpy() for x in outputs]).mean()
+        pitch_loss = np.array([x["pitch_loss"].cpu().numpy() for x in outputs]).mean()
+        f1_score = np.array([x["f1_score"].cpu().numpy() for x in outputs]).mean()
+
 
         self.log("val_loss", avg_loss, sync_dist=True)
         self.log("val/mel_loss", mel_loss, sync_dist=True)
