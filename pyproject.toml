@@ -22,7 +22,7 @@ encodec = "0.1.1"
 types-tqdm = "4.*"
 pytest = "7.*"
 pytorch_lightning = "1.8.6"
-jsonargparse[signatures] = "^4.21.0"
+jsonargparse = {version = "^4.21.0", extras = ["signatures"]}
 transformers = "^4.28.0"
 matplotlib = "^3.7.0"
 torchcrepe = "^0.0.19"
