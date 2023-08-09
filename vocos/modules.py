@@ -1,62 +1,77 @@
+"""Modules used several modules."""
+
 from typing import Optional
 
 import torch
-from torch import nn
+from torch import nn, Tensor
 from torch.nn.utils import weight_norm, remove_weight_norm
 
 
 class ConvNeXtBlock(nn.Module):
-    """ConvNeXt Block adapted from https://github.com/facebookresearch/ConvNeXt to 1D audio signal.
+    """ConvNeXt Block, Res[DwConv-Norm-PwConv-GELU-PwConv[-γ]].
 
-    Args:
-        dim (int): Number of input channels.
-        intermediate_dim (int): Dimensionality of the intermediate layer.
-        layer_scale_init_value (float, optional): Initial value for the layer scale. None means no scaling.
-            Defaults to None.
-        adanorm_num_embeddings (int, optional): Number of embeddings for AdaLayerNorm.
-            None means non-conditional LayerNorm. Defaults to None.
+    Adapted from https://github.com/facebookresearch/ConvNeXt to 1D audio signal.
     """
 
-    def __init__(
-        self,
-        dim: int,
-        intermediate_dim: int,
-        layer_scale_init_value: Optional[float] = None,
-        adanorm_num_embeddings: Optional[int] = None,
+    def __init__(self,
+        dim:                    int,
+        intermediate_dim:       int,
+        layer_scale_init_value: None | float = None,
+        adanorm_num_embeddings: None | int   = None,
     ):
+        """
+        Args:
+            dim                    - Number of input channels.
+            intermediate_dim       - Dimensionality of the intermediate layer.
+            layer_scale_init_value - Initial value for the layer scale. None means no scaling.
+            adanorm_num_embeddings - Number of embeddings for AdaLayerNorm. None means non-conditional LayerNorm.
+        """
         super().__init__()
-        self.dwconv = nn.Conv1d(dim, dim, kernel_size=7, padding=3, groups=dim)  # depthwise conv
-        self.adanorm = adanorm_num_embeddings is not None
-        if adanorm_num_embeddings:
-            self.norm = AdaLayerNorm(adanorm_num_embeddings, dim, eps=1e-6)
-        else:
-            self.norm = nn.LayerNorm(dim, eps=1e-6)
-        self.pwconv1 = nn.Linear(dim, intermediate_dim)  # pointwise/1x1 convs, implemented with linear layers
-        self.act = nn.GELU()
-        self.pwconv2 = nn.Linear(intermediate_dim, dim)
-        self.gamma = (
-            nn.Parameter(layer_scale_init_value * torch.ones(dim), requires_grad=True)
-            if layer_scale_init_value > 0
-            else None
-        )
 
-    def forward(self, x: torch.Tensor, cond_embedding_id: Optional[torch.Tensor] = None) -> torch.Tensor:
+        feat_io, feat_h = dim, intermediate_dim
+        # DepthwiseConv/Norm
+        self.dwconv = nn.Conv1d(feat_io, feat_io, kernel_size=7, padding="same", groups=feat_io)
+        self.adanorm = adanorm_num_embeddings is not None
+        self.norm = AdaLayerNorm(adanorm_num_embeddings, feat_io, eps=1e-6) if adanorm_num_embeddings else nn.LayerNorm(feat_io, eps=1e-6)
+        # PointwiseConv/GELU/PointwiseConv/γ
+        self.pwconv1 = nn.Linear(feat_io, feat_h)
+        self.act = nn.GELU()
+        self.pwconv2 = nn.Linear(feat_h, feat_io)
+        self.gamma = nn.Parameter(layer_scale_init_value * torch.ones(feat_io), requires_grad=True) if layer_scale_init_value > 0 else None
+
+    def forward(self, x: Tensor, cond_embedding_id: None | Tensor = None) -> Tensor:
+        """
+        Args:
+            x                 :: (B, Feat=io, Frame=frm) - Input  feature series
+            cond_embedding_id
+        Returns:
+                              :: (B, Feat=io, Frame=frm) - Output feature series
+        """
+
         residual = x
+
+        # Depthwise :: (B, Feat=io, Frame) -> (B, Feat=io, Frame)
         x = self.dwconv(x)
-        x = x.transpose(1, 2)  # (B, C, T) -> (B, T, C)
+
+        # Norm :: (B, Feat=io, Frame) -> (B, Frame, Feat=io) -> (B, Frame, Feat=io)
+        x = x.transpose(1, 2)
         if self.adanorm:
             assert cond_embedding_id is not None
             x = self.norm(x, cond_embedding_id)
         else:
             x = self.norm(x)
+
+        # Pointwise :: (B, Frame, Feat=io) -> (B, Frame, Feat=h) -> (B, Frame, Feat=io) -> (B, Feat=io, Frame)
         x = self.pwconv1(x)
         x = self.act(x)
         x = self.pwconv2(x)
         if self.gamma is not None:
             x = self.gamma * x
-        x = x.transpose(1, 2)  # (B, T, C) -> (B, C, T)
+        x = x.transpose(1, 2)
 
+        # Residual
         x = residual + x
+
         return x
 
 
@@ -90,88 +105,45 @@ class ResBlock1(nn.Module):
     """
     ResBlock adapted from HiFi-GAN V1 (https://github.com/jik876/hifi-gan) with dilated 1D convolutions,
     but without upsampling layers.
-
-    Args:
-        dim (int): Number of input channels.
-        kernel_size (int, optional): Size of the convolutional kernel. Defaults to 3.
-        dilation (tuple[int], optional): Dilation factors for the dilated convolutions.
-            Defaults to (1, 3, 5).
-        lrelu_slope (float, optional): Negative slope of the LeakyReLU activation function.
-            Defaults to 0.1.
-        layer_scale_init_value (float, optional): Initial value for the layer scale. None means no scaling.
-            Defaults to None.
     """
 
-    def __init__(
-        self,
-        dim: int,
-        kernel_size: int = 3,
-        dilation: tuple[int] = (1, 3, 5),
-        lrelu_slope: float = 0.1,
-        layer_scale_init_value: float = None,
+    def __init__(self,
+        dim:                    int,
+        layer_scale_init_value: None | float = None,
     ):
+        """
+        Args:
+            dim                    - Number of input channels.
+            layer_scale_init_value - Initial value for the layer scale. None means no scaling.
+        """
         super().__init__()
+
+        kernel_size = 3
+        dilation    = (1, 3, 5)
+        lrelu_slope = 0.1
+
         self.lrelu_slope = lrelu_slope
-        self.convs1 = nn.ModuleList(
-            [
-                weight_norm(
-                    nn.Conv1d(
-                        dim,
-                        dim,
-                        kernel_size,
-                        1,
-                        dilation=dilation[0],
-                        padding=self.get_padding(kernel_size, dilation[0]),
-                    )
-                ),
-                weight_norm(
-                    nn.Conv1d(
-                        dim,
-                        dim,
-                        kernel_size,
-                        1,
-                        dilation=dilation[1],
-                        padding=self.get_padding(kernel_size, dilation[1]),
-                    )
-                ),
-                weight_norm(
-                    nn.Conv1d(
-                        dim,
-                        dim,
-                        kernel_size,
-                        1,
-                        dilation=dilation[2],
-                        padding=self.get_padding(kernel_size, dilation[2]),
-                    )
-                ),
-            ]
-        )
+        self.convs1 = nn.ModuleList([
+            weight_norm(nn.Conv1d(dim, dim, kernel_size, dilation=dilation[0], padding=self.get_padding(kernel_size, dilation[0]))),
+            weight_norm(nn.Conv1d(dim, dim, kernel_size, dilation=dilation[1], padding=self.get_padding(kernel_size, dilation[1]))),
+            weight_norm(nn.Conv1d(dim, dim, kernel_size, dilation=dilation[2], padding=self.get_padding(kernel_size, dilation[2]))),
+        ])
+        self.convs2 = nn.ModuleList([
+            weight_norm(nn.Conv1d(dim, dim, kernel_size,                       padding="same")),
+            weight_norm(nn.Conv1d(dim, dim, kernel_size,                       padding="same")),
+            weight_norm(nn.Conv1d(dim, dim, kernel_size,                       padding="same")),
+        ])
 
-        self.convs2 = nn.ModuleList(
-            [
-                weight_norm(nn.Conv1d(dim, dim, kernel_size, 1, dilation=1, padding=self.get_padding(kernel_size, 1))),
-                weight_norm(nn.Conv1d(dim, dim, kernel_size, 1, dilation=1, padding=self.get_padding(kernel_size, 1))),
-                weight_norm(nn.Conv1d(dim, dim, kernel_size, 1, dilation=1, padding=self.get_padding(kernel_size, 1))),
-            ]
-        )
-
-        self.gamma = nn.ParameterList(
-            [
-                nn.Parameter(layer_scale_init_value * torch.ones(dim, 1), requires_grad=True)
-                if layer_scale_init_value is not None
-                else None,
-                nn.Parameter(layer_scale_init_value * torch.ones(dim, 1), requires_grad=True)
-                if layer_scale_init_value is not None
-                else None,
-                nn.Parameter(layer_scale_init_value * torch.ones(dim, 1), requires_grad=True)
-                if layer_scale_init_value is not None
-                else None,
-            ]
-        )
+        self.gamma = nn.ParameterList([
+            nn.Parameter(layer_scale_init_value * torch.ones(dim, 1), requires_grad=True) if layer_scale_init_value is not None else None,
+            nn.Parameter(layer_scale_init_value * torch.ones(dim, 1), requires_grad=True) if layer_scale_init_value is not None else None,
+            nn.Parameter(layer_scale_init_value * torch.ones(dim, 1), requires_grad=True) if layer_scale_init_value is not None else None,
+        ])
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         for c1, c2, gamma in zip(self.convs1, self.convs2, self.gamma):
-            xt = torch.nn.functional.leaky_relu(x, negative_slope=self.lrelu_slope)
+            # Res[LReLU-DilConv-LReLU-Conv[-γ]]
+            xt = torch.nn.functional.leaky_relu(x,  negative_slope=self.lrelu_slope)
             xt = c1(xt)
             xt = torch.nn.functional.leaky_relu(xt, negative_slope=self.lrelu_slope)
             xt = c2(xt)
@@ -187,7 +159,7 @@ class ResBlock1(nn.Module):
             remove_weight_norm(l)
 
     @staticmethod
-    def get_padding(kernel_size: int, dilation: int = 1) -> int:
+    def get_padding(kernel_size: int, dilation: int) -> int:
         return int((kernel_size * dilation - dilation) / 2)
 
 

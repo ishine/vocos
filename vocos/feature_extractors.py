@@ -26,6 +26,7 @@ class FeatureExtractor(nn.Module):
 
 
 class MelSpectrogramFeatures(FeatureExtractor):
+    """Wave-to-Mel feature extractor."""
     def __init__(self, sample_rate=24000, n_fft=1024, hop_length=256, n_mels=100, padding="center"):
         super().__init__()
         if padding not in ["center", "same"]:
