@@ -24,7 +24,6 @@ class VocosExp(pl.LightningModule):
         head:                  FourierHead,
         sample_rate:           int,
         initial_learning_rate: float,
-        num_warmup_steps:      int   = 0,
         mel_loss_coeff:        float = 45,
         mrd_loss_coeff:        float = 1.0,
         evaluate_utmos:        bool  = False,
@@ -38,7 +37,6 @@ class VocosExp(pl.LightningModule):
             head (FourierHead):  An instance of Fourier head to generate spectral coefficients and reconstruct a waveform.
             sample_rate (int): Sampling rate of the audio signals.
             initial_learning_rate (float): Initial learning rate for the optimizer.
-            num_warmup_steps (int): Number of steps for the warmup phase of learning rate scheduler. Default is 0.
             mel_loss_coeff     - Coefficient for Mel-spectrogram loss in the loss function
             mrd_loss_coeff (float, optional): Coefficient for Multi Resolution Discriminator loss. Default is 1.0.
             evaluate_utmos (bool, optional): If True, UTMOS scores are computed for each validation run.
@@ -76,12 +74,8 @@ class VocosExp(pl.LightningModule):
         opt_gen  = torch.optim.AdamW(gen_params,  lr=self.hparams.initial_learning_rate)
 
         max_steps = self.trainer.max_steps // 2  # Max steps per optimizer
-        scheduler_disc = transformers.get_cosine_schedule_with_warmup(
-            opt_disc, num_warmup_steps=self.hparams.num_warmup_steps, num_training_steps=max_steps,
-        )
-        scheduler_gen = transformers.get_cosine_schedule_with_warmup(
-            opt_gen, num_warmup_steps=self.hparams.num_warmup_steps, num_training_steps=max_steps,
-        )
+        scheduler_disc = transformers.get_cosine_schedule_with_warmup(opt_disc, num_warmup_steps=0, num_training_steps=max_steps)
+        scheduler_gen  = transformers.get_cosine_schedule_with_warmup(opt_gen,  num_warmup_steps=0, num_training_steps=max_steps)
 
         return (
             [opt_disc, opt_gen],
@@ -265,7 +259,6 @@ class VocosEncodecExp(VocosExp):
         head: FourierHead,
         sample_rate: int,
         initial_learning_rate: float,
-        num_warmup_steps: int,
         mel_loss_coeff: float = 45,
         mrd_loss_coeff: float = 1.0,
         evaluate_utmos: bool = False,
@@ -278,7 +271,6 @@ class VocosEncodecExp(VocosExp):
             head,
             sample_rate,
             initial_learning_rate,
-            num_warmup_steps,
             mel_loss_coeff,
             mrd_loss_coeff,
             evaluate_utmos,
