@@ -27,7 +27,6 @@ class VocosExp(pl.LightningModule):
         num_warmup_steps:      int   = 0,
         mel_loss_coeff:        float = 45,
         mrd_loss_coeff:        float = 1.0,
-        pretrain_mel_steps:    int   = 0,
         evaluate_utmos:        bool  = False,
         evaluate_pesq:         bool  = False,
         evaluate_periodicty:   bool  = False,
@@ -42,7 +41,6 @@ class VocosExp(pl.LightningModule):
             num_warmup_steps (int): Number of steps for the warmup phase of learning rate scheduler. Default is 0.
             mel_loss_coeff     - Coefficient for Mel-spectrogram loss in the loss function
             mrd_loss_coeff (float, optional): Coefficient for Multi Resolution Discriminator loss. Default is 1.0.
-            pretrain_mel_steps - Number of steps to pre-train the model without the GAN objective (Currently not used)
             evaluate_utmos (bool, optional): If True, UTMOS scores are computed for each validation run.
             evaluate_pesq (bool, optional): If True, PESQ scores are computed for each validation run.
             evaluate_periodicty (bool, optional): If True, periodicity scores are computed for each validation run.
@@ -62,8 +60,6 @@ class VocosExp(pl.LightningModule):
         self.gen_loss           = GeneratorLoss()
         self.feat_matching_loss = FeatureMatchingLoss()
         self.melspec_loss       = MelSpecReconstructionLoss(sample_rate=sample_rate)
-
-        self.train_discriminator = False
 
     def configure_optimizers(self):
         disc_params = [
@@ -100,7 +96,7 @@ class VocosExp(pl.LightningModule):
         audio_input = batch
 
         # D
-        if optimizer_idx == 0 and self.train_discriminator:
+        if optimizer_idx == 0:
             # D_Forward
             with torch.no_grad():
                 audio_hat = self(audio_input, **kwargs)
@@ -109,7 +105,7 @@ class VocosExp(pl.LightningModule):
             # D_Loss
             loss_mp,  loss_mp_real,  _ = self.disc_loss(disc_real_outputs=real_score_mp, disc_generated_outputs=gen_score_mp)
             loss_mrd, loss_mrd_real, _ = self.disc_loss(disc_real_outputs=real_score_mrd, disc_generated_outputs=gen_score_mrd)
-            loss_mp /= len(loss_mp_real)
+            loss_mp  /= len(loss_mp_real)
             loss_mrd /= len(loss_mrd_real)
             loss = loss_mp + self.hparams.mrd_loss_coeff * loss_mrd
             # Logging
@@ -123,19 +119,16 @@ class VocosExp(pl.LightningModule):
         if optimizer_idx == 1:
             # G_Forward
             audio_hat = self(audio_input, **kwargs)
-            if self.train_discriminator:
-                _, gen_score_mp,  fmap_rs_mp,  fmap_gs_mp  = self.multiperioddisc(y=audio_input, y_hat=audio_hat, **kwargs)
-                _, gen_score_mrd, fmap_rs_mrd, fmap_gs_mrd =   self.multiresddisc(y=audio_input, y_hat=audio_hat, **kwargs)
+            _, gen_score_mp,  fmap_rs_mp,  fmap_gs_mp  = self.multiperioddisc(y=audio_input, y_hat=audio_hat, **kwargs)
+            _, gen_score_mrd, fmap_rs_mrd, fmap_gs_mrd =   self.multiresddisc(y=audio_input, y_hat=audio_hat, **kwargs)
             # G_Loss
-                loss_gen_mp,  list_loss_gen_mp  = self.gen_loss(disc_outputs=gen_score_mp)
-                loss_gen_mrd, list_loss_gen_mrd = self.gen_loss(disc_outputs=gen_score_mrd)
-                loss_gen_mp = loss_gen_mp / len(list_loss_gen_mp)
-                loss_gen_mrd = loss_gen_mrd / len(list_loss_gen_mrd)
-                loss_fm_mp = self.feat_matching_loss(fmap_r=fmap_rs_mp, fmap_g=fmap_gs_mp) / len(fmap_rs_mp)
-                loss_fm_mrd = self.feat_matching_loss(fmap_r=fmap_rs_mrd, fmap_g=fmap_gs_mrd) / len(fmap_rs_mrd)
-            else:
-                loss_gen_mp = loss_gen_mrd = loss_fm_mp = loss_fm_mrd = 0
-            loss_mel = self.melspec_loss(audio_hat, audio_input)
+            loss_gen_mp,  list_loss_gen_mp  = self.gen_loss(disc_outputs=gen_score_mp)
+            loss_gen_mrd, list_loss_gen_mrd = self.gen_loss(disc_outputs=gen_score_mrd)
+            loss_gen_mp  = loss_gen_mp  / len(list_loss_gen_mp)
+            loss_gen_mrd = loss_gen_mrd / len(list_loss_gen_mrd)
+            loss_fm_mp   = self.feat_matching_loss(fmap_r=fmap_rs_mp, fmap_g=fmap_gs_mp) / len(fmap_rs_mp)
+            loss_fm_mrd  = self.feat_matching_loss(fmap_r=fmap_rs_mrd, fmap_g=fmap_gs_mrd) / len(fmap_rs_mrd)
+            loss_mel     = self.melspec_loss(audio_hat, audio_input)
             loss = (
                                                 loss_gen_mp
                 + self.hparams.mrd_loss_coeff * loss_gen_mrd
@@ -256,12 +249,6 @@ class VocosExp(pl.LightningModule):
         """
         return self.trainer.fit_loop.epoch_loop.total_batch_idx
 
-    def on_train_batch_start(self, *args):
-        if self.global_step >= self.hparams.pretrain_mel_steps:
-            self.train_discriminator = True
-        else:
-            self.train_discriminator = False
-
 
 class VocosEncodecExp(VocosExp):
     """
@@ -281,7 +268,6 @@ class VocosEncodecExp(VocosExp):
         num_warmup_steps: int,
         mel_loss_coeff: float = 45,
         mrd_loss_coeff: float = 1.0,
-        pretrain_mel_steps: int = 0,
         evaluate_utmos: bool = False,
         evaluate_pesq: bool = False,
         evaluate_periodicty: bool = False,
@@ -295,7 +281,6 @@ class VocosEncodecExp(VocosExp):
             num_warmup_steps,
             mel_loss_coeff,
             mrd_loss_coeff,
-            pretrain_mel_steps,
             evaluate_utmos,
             evaluate_pesq,
             evaluate_periodicty,
