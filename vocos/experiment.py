@@ -19,19 +19,18 @@ class VocosExp(pl.LightningModule):
     # noinspection PyUnusedLocal
     def __init__(
         self,
-        feature_extractor: FeatureExtractor,
-        backbone: Backbone,
-        head: FourierHead,
-        sample_rate: int,
+        feature_extractor:     FeatureExtractor,
+        backbone:              Backbone,
+        head:                  FourierHead,
+        sample_rate:           int,
         initial_learning_rate: float,
-        num_warmup_steps: int   = 0,
-        mel_loss_coeff:   float = 45,
-        mrd_loss_coeff:   float = 1.0,
-        pretrain_mel_steps: None | int  = 0,
-        decay_mel_coeff:           bool = False,
-        evaluate_utmos:            bool = False,
-        evaluate_pesq:             bool = False,
-        evaluate_periodicty: bool = False,
+        num_warmup_steps:      int   = 0,
+        mel_loss_coeff:        float = 45,
+        mrd_loss_coeff:        float = 1.0,
+        pretrain_mel_steps:    int   = 0,
+        evaluate_utmos:        bool  = False,
+        evaluate_pesq:         bool  = False,
+        evaluate_periodicty:   bool  = False,
     ):
         """
         Args:
@@ -41,10 +40,9 @@ class VocosExp(pl.LightningModule):
             sample_rate (int): Sampling rate of the audio signals.
             initial_learning_rate (float): Initial learning rate for the optimizer.
             num_warmup_steps (int): Number of steps for the warmup phase of learning rate scheduler. Default is 0.
-            mel_loss_coeff (float, optional): Coefficient for Mel-spectrogram loss in the loss function. Default is 45.
+            mel_loss_coeff     - Coefficient for Mel-spectrogram loss in the loss function
             mrd_loss_coeff (float, optional): Coefficient for Multi Resolution Discriminator loss. Default is 1.0.
             pretrain_mel_steps - Number of steps to pre-train the model without the GAN objective (Currently not used)
-            decay_mel_coeff (bool, optional): If True, the Mel-spectrogram loss coefficient is decayed during training. Default is False.
             evaluate_utmos (bool, optional): If True, UTMOS scores are computed for each validation run.
             evaluate_pesq (bool, optional): If True, PESQ scores are computed for each validation run.
             evaluate_periodicty (bool, optional): If True, periodicity scores are computed for each validation run.
@@ -66,7 +64,6 @@ class VocosExp(pl.LightningModule):
         self.melspec_loss       = MelSpecReconstructionLoss(sample_rate=sample_rate)
 
         self.train_discriminator = False
-        self.base_mel_coeff = self.mel_loss_coeff = mel_loss_coeff
 
     def configure_optimizers(self):
         disc_params = [
@@ -144,14 +141,13 @@ class VocosExp(pl.LightningModule):
                 + self.hparams.mrd_loss_coeff * loss_gen_mrd
                 +                               loss_fm_mp
                 + self.hparams.mrd_loss_coeff * loss_fm_mrd
-                +         self.mel_loss_coeff * loss_mel)
+                + self.hparams.mel_loss_coeff * loss_mel)
             # Logging
             self.log("generator/multi_period_loss",    loss_gen_mp)
             self.log("generator/multi_res_loss",       loss_gen_mrd)
             self.log("generator/feature_matching_mp",  loss_fm_mp)
             self.log("generator/feature_matching_mrd", loss_fm_mrd)
             self.log("generator/total_loss",           loss,        prog_bar=True)
-            self.log("mel_loss_coeff",                 self.mel_loss_coeff)
             self.log("generator/mel_loss",             loss_mel)
             if self.global_step % 1000 == 0 and self.global_rank == 0:
                 self.logger.experiment.add_audio("train/audio_in", audio_input[0].data.cpu(), self.global_step, self.hparams.sample_rate)
@@ -266,19 +262,6 @@ class VocosExp(pl.LightningModule):
         else:
             self.train_discriminator = False
 
-    def on_train_batch_end(self, *args):
-        def mel_loss_coeff_decay(current_step, num_cycles=0.5):
-            max_steps = self.trainer.max_steps // 2
-            if current_step < self.hparams.num_warmup_steps:
-                return 1.0
-            progress = float(current_step - self.hparams.num_warmup_steps) / float(
-                max(1, max_steps - self.hparams.num_warmup_steps)
-            )
-            return max(0.0, 0.5 * (1.0 + math.cos(math.pi * float(num_cycles) * 2.0 * progress)))
-
-        if self.hparams.decay_mel_coeff:
-            self.mel_loss_coeff = self.base_mel_coeff * mel_loss_coeff_decay(self.global_step + 1)
-
 
 class VocosEncodecExp(VocosExp):
     """
@@ -299,7 +282,6 @@ class VocosEncodecExp(VocosExp):
         mel_loss_coeff: float = 45,
         mrd_loss_coeff: float = 1.0,
         pretrain_mel_steps: int = 0,
-        decay_mel_coeff: bool = False,
         evaluate_utmos: bool = False,
         evaluate_pesq: bool = False,
         evaluate_periodicty: bool = False,
@@ -314,7 +296,6 @@ class VocosEncodecExp(VocosExp):
             mel_loss_coeff,
             mrd_loss_coeff,
             pretrain_mel_steps,
-            decay_mel_coeff,
             evaluate_utmos,
             evaluate_pesq,
             evaluate_periodicty,
