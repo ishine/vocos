@@ -1,3 +1,4 @@
+from __future__ import annotations
 from typing import Tuple, Any, Union, Dict
 
 import torch
@@ -30,13 +31,8 @@ def instantiate_class(args: Union[Any, Tuple[Any, ...]], init: Dict[str, Any]) -
 
 
 class Vocos(nn.Module):
-    """
-    The Vocos class represents a Fourier-based neural vocoder for audio synthesis.
-    This class is primarily designed for inference, with support for loading from pretrained model checkpoints.
-    It consists of three main components:
-        - feature extractor
-        - backbone
-        -head
+    """Vocos inference model.
+    Model load, Reconstruction (wave-to-unit-to-wave), Vocoding (unit-to-wave) and Unitnize(code-to-unit) are supported.
     """
 
     def __init__(self, feature_extractor: FeatureExtractor, backbone: Backbone, head: FourierHead):
@@ -46,7 +42,7 @@ class Vocos(nn.Module):
         self.head = head
 
     @classmethod
-    def from_hparams(cls, config_path: str) -> "Vocos":
+    def from_hparams(cls, config_path: str) -> Vocos:
         """Create a instance from hyperparameters stored in a yaml configuration file (states are not restored).
         """
         with open(config_path, "r") as f:
@@ -58,7 +54,7 @@ class Vocos(nn.Module):
         return model
 
     @classmethod
-    def from_pretrained(self, repo_id: str) -> "Vocos":
+    def from_pretrained(self, repo_id: str) -> Vocos:
         """Create a instance from a pre-trained model stored in the Hugging Face model hub.
         """
         # Instantiate
@@ -92,9 +88,7 @@ class Vocos(nn.Module):
         Returns:
                         :: (B, T) - Reconstructed audio
         """
-        features = self.feature_extractor(audio_input, **kwargs)
-        audio_output = self.decode(features, **kwargs)
-        return audio_output
+        return self.decode(self.feature_extractor(audio_input, **kwargs), **kwargs)
 
     @torch.inference_mode()
     def decode(self, features_input: UnitSeries, **kwargs: Any) -> Wave:

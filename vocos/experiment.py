@@ -24,13 +24,13 @@ class VocosExp(pl.LightningModule):
         head: FourierHead,
         sample_rate: int,
         initial_learning_rate: float,
-        num_warmup_steps: int = 0,
-        mel_loss_coeff: float = 45,
-        mrd_loss_coeff: float = 1.0,
-        pretrain_mel_steps: int = 0,
-        decay_mel_coeff: bool = False,
-        evaluate_utmos: bool = False,
-        evaluate_pesq: bool = False,
+        num_warmup_steps: int   = 0,
+        mel_loss_coeff:   float = 45,
+        mrd_loss_coeff:   float = 1.0,
+        pretrain_mel_steps: None | int  = 0,
+        decay_mel_coeff:           bool = False,
+        evaluate_utmos:            bool = False,
+        evaluate_pesq:             bool = False,
         evaluate_periodicty: bool = False,
     ):
         """
@@ -43,7 +43,7 @@ class VocosExp(pl.LightningModule):
             num_warmup_steps (int): Number of steps for the warmup phase of learning rate scheduler. Default is 0.
             mel_loss_coeff (float, optional): Coefficient for Mel-spectrogram loss in the loss function. Default is 45.
             mrd_loss_coeff (float, optional): Coefficient for Multi Resolution Discriminator loss. Default is 1.0.
-            pretrain_mel_steps (int, optional): Number of steps to pre-train the model without the GAN objective. Default is 0.
+            pretrain_mel_steps - Number of steps to pre-train the model without the GAN objective (Currently not used)
             decay_mel_coeff (bool, optional): If True, the Mel-spectrogram loss coefficient is decayed during training. Default is False.
             evaluate_utmos (bool, optional): If True, UTMOS scores are computed for each validation run.
             evaluate_pesq (bool, optional): If True, PESQ scores are computed for each validation run.
@@ -52,17 +52,18 @@ class VocosExp(pl.LightningModule):
         super().__init__()
         self.save_hyperparameters(ignore=["feature_extractor", "backbone", "head"])
 
+        # Models
         self.feature_extractor = feature_extractor
-        self.backbone = backbone
-        self.head = head
+        self.backbone          = backbone
+        self.head              = head
+        self.multiperioddisc   = MultiPeriodDiscriminator()
+        self.multiresddisc     = MultiResolutionDiscriminator()
 
-        self.multiperioddisc = MultiPeriodDiscriminator()
-        self.multiresddisc = MultiResolutionDiscriminator()
-
-        self.disc_loss = DiscriminatorLoss()
-        self.gen_loss = GeneratorLoss()
+        # Loss
+        self.disc_loss          = DiscriminatorLoss()
+        self.gen_loss           = GeneratorLoss()
         self.feat_matching_loss = FeatureMatchingLoss()
-        self.melspec_loss = MelSpecReconstructionLoss(sample_rate=sample_rate)
+        self.melspec_loss       = MelSpecReconstructionLoss(sample_rate=sample_rate)
 
         self.train_discriminator = False
         self.base_mel_coeff = self.mel_loss_coeff = mel_loss_coeff
@@ -79,7 +80,7 @@ class VocosExp(pl.LightningModule):
         ]
 
         opt_disc = torch.optim.AdamW(disc_params, lr=self.hparams.initial_learning_rate)
-        opt_gen = torch.optim.AdamW(gen_params, lr=self.hparams.initial_learning_rate)
+        opt_gen  = torch.optim.AdamW(gen_params,  lr=self.hparams.initial_learning_rate)
 
         max_steps = self.trainer.max_steps // 2  # Max steps per optimizer
         scheduler_disc = transformers.get_cosine_schedule_with_warmup(
@@ -95,96 +96,72 @@ class VocosExp(pl.LightningModule):
         )
 
     def forward(self, audio_input, **kwargs):
-        features = self.feature_extractor(audio_input, **kwargs)
-        x = self.backbone(features, **kwargs)
-        audio_output = self.head(x)
-        return audio_output
+        """Analysis/Synthesis, wave-to-unit-to-feat-to-wave."""
+        return self.head(self.backbone(self.feature_extractor(audio_input, **kwargs), **kwargs))
 
     def training_step(self, batch, batch_idx, optimizer_idx, **kwargs):
         audio_input = batch
 
-        # train discriminator
+        # D
         if optimizer_idx == 0 and self.train_discriminator:
+            # D_Forward
             with torch.no_grad():
                 audio_hat = self(audio_input, **kwargs)
-
             real_score_mp, gen_score_mp, _, _ = self.multiperioddisc(y=audio_input, y_hat=audio_hat, **kwargs,)
             real_score_mrd, gen_score_mrd, _, _ = self.multiresddisc(y=audio_input, y_hat=audio_hat, **kwargs,)
-            loss_mp, loss_mp_real, _ = self.disc_loss(
-                disc_real_outputs=real_score_mp, disc_generated_outputs=gen_score_mp
-            )
-            loss_mrd, loss_mrd_real, _ = self.disc_loss(
-                disc_real_outputs=real_score_mrd, disc_generated_outputs=gen_score_mrd
-            )
+            # D_Loss
+            loss_mp,  loss_mp_real,  _ = self.disc_loss(disc_real_outputs=real_score_mp, disc_generated_outputs=gen_score_mp)
+            loss_mrd, loss_mrd_real, _ = self.disc_loss(disc_real_outputs=real_score_mrd, disc_generated_outputs=gen_score_mrd)
             loss_mp /= len(loss_mp_real)
             loss_mrd /= len(loss_mrd_real)
             loss = loss_mp + self.hparams.mrd_loss_coeff * loss_mrd
-
-            self.log("discriminator/total", loss, prog_bar=True)
+            # Logging
+            self.log("discriminator/total",             loss,     prog_bar=True)
             self.log("discriminator/multi_period_loss", loss_mp)
-            self.log("discriminator/multi_res_loss", loss_mrd)
+            self.log("discriminator/multi_res_loss",    loss_mrd)
+            # D_Backward/Optim (automatic)
             return loss
 
-        # train generator
+        # G
         if optimizer_idx == 1:
+            # G_Forward
             audio_hat = self(audio_input, **kwargs)
             if self.train_discriminator:
-                _, gen_score_mp, fmap_rs_mp, fmap_gs_mp = self.multiperioddisc(
-                    y=audio_input, y_hat=audio_hat, **kwargs,
-                )
-                _, gen_score_mrd, fmap_rs_mrd, fmap_gs_mrd = self.multiresddisc(
-                    y=audio_input, y_hat=audio_hat, **kwargs,
-                )
-                loss_gen_mp, list_loss_gen_mp = self.gen_loss(disc_outputs=gen_score_mp)
+                _, gen_score_mp,  fmap_rs_mp,  fmap_gs_mp  = self.multiperioddisc(y=audio_input, y_hat=audio_hat, **kwargs)
+                _, gen_score_mrd, fmap_rs_mrd, fmap_gs_mrd =   self.multiresddisc(y=audio_input, y_hat=audio_hat, **kwargs)
+            # G_Loss
+                loss_gen_mp,  list_loss_gen_mp  = self.gen_loss(disc_outputs=gen_score_mp)
                 loss_gen_mrd, list_loss_gen_mrd = self.gen_loss(disc_outputs=gen_score_mrd)
                 loss_gen_mp = loss_gen_mp / len(list_loss_gen_mp)
                 loss_gen_mrd = loss_gen_mrd / len(list_loss_gen_mrd)
                 loss_fm_mp = self.feat_matching_loss(fmap_r=fmap_rs_mp, fmap_g=fmap_gs_mp) / len(fmap_rs_mp)
                 loss_fm_mrd = self.feat_matching_loss(fmap_r=fmap_rs_mrd, fmap_g=fmap_gs_mrd) / len(fmap_rs_mrd)
-
-                self.log("generator/multi_period_loss", loss_gen_mp)
-                self.log("generator/multi_res_loss", loss_gen_mrd)
-                self.log("generator/feature_matching_mp", loss_fm_mp)
-                self.log("generator/feature_matching_mrd", loss_fm_mrd)
             else:
                 loss_gen_mp = loss_gen_mrd = loss_fm_mp = loss_fm_mrd = 0
-
-            mel_loss = self.melspec_loss(audio_hat, audio_input)
+            loss_mel = self.melspec_loss(audio_hat, audio_input)
             loss = (
-                loss_gen_mp
+                                                loss_gen_mp
                 + self.hparams.mrd_loss_coeff * loss_gen_mrd
-                + loss_fm_mp
+                +                               loss_fm_mp
                 + self.hparams.mrd_loss_coeff * loss_fm_mrd
-                + self.mel_loss_coeff * mel_loss
-            )
-
-            self.log("generator/total_loss", loss, prog_bar=True)
-            self.log("mel_loss_coeff", self.mel_loss_coeff)
-            self.log("generator/mel_loss", mel_loss)
-
+                +         self.mel_loss_coeff * loss_mel)
+            # Logging
+            self.log("generator/multi_period_loss",    loss_gen_mp)
+            self.log("generator/multi_res_loss",       loss_gen_mrd)
+            self.log("generator/feature_matching_mp",  loss_fm_mp)
+            self.log("generator/feature_matching_mrd", loss_fm_mrd)
+            self.log("generator/total_loss",           loss,        prog_bar=True)
+            self.log("mel_loss_coeff",                 self.mel_loss_coeff)
+            self.log("generator/mel_loss",             loss_mel)
             if self.global_step % 1000 == 0 and self.global_rank == 0:
-                self.logger.experiment.add_audio(
-                    "train/audio_in", audio_input[0].data.cpu(), self.global_step, self.hparams.sample_rate
-                )
-                self.logger.experiment.add_audio(
-                    "train/audio_pred", audio_hat[0].data.cpu(), self.global_step, self.hparams.sample_rate
-                )
+                self.logger.experiment.add_audio("train/audio_in", audio_input[0].data.cpu(), self.global_step, self.hparams.sample_rate)
+                self.logger.experiment.add_audio("train/audio_pred", audio_hat[0].data.cpu(), self.global_step, self.hparams.sample_rate)
                 with torch.no_grad():
-                    mel = safe_log(self.melspec_loss.mel_spec(audio_input[0]))
+                    mel     = safe_log(self.melspec_loss.mel_spec(audio_input[0]))
                     mel_hat = safe_log(self.melspec_loss.mel_spec(audio_hat[0]))
-                self.logger.experiment.add_image(
-                    "train/mel_target",
-                    plot_spectrogram_to_numpy(mel.data.cpu().numpy()),
-                    self.global_step,
-                    dataformats="HWC",
-                )
-                self.logger.experiment.add_image(
-                    "train/mel_pred",
-                    plot_spectrogram_to_numpy(mel_hat.data.cpu().numpy()),
-                    self.global_step,
-                    dataformats="HWC",
-                )
-
+                self.logger.experiment.add_image("train/mel_target", plot_spectrogram_to_numpy(mel.data.cpu().numpy()),     self.global_step, dataformats="HWC")
+                self.logger.experiment.add_image("train/mel_pred",   plot_spectrogram_to_numpy(mel_hat.data.cpu().numpy()), self.global_step, dataformats="HWC")
+            # G_Backward/Optim (automatic)
             return loss
 
     def on_validation_epoch_start(self):
@@ -198,12 +175,11 @@ class VocosExp(pl.LightningModule):
         audio_input = batch
         audio_hat = self(audio_input, **kwargs)
 
-        audio_16_khz = torchaudio.functional.resample(audio_input, orig_freq=self.hparams.sample_rate, new_freq=16000)
-        audio_hat_16khz = torchaudio.functional.resample(audio_hat, orig_freq=self.hparams.sample_rate, new_freq=16000)
+        audio_16_khz    = torchaudio.functional.resample(audio_input, orig_freq=self.hparams.sample_rate, new_freq=16000)
+        audio_hat_16khz = torchaudio.functional.resample(audio_hat,   orig_freq=self.hparams.sample_rate, new_freq=16000)
 
         if self.hparams.evaluate_periodicty:
             from metrics.periodicity import calculate_periodicity_metrics
-
             periodicity_loss, pitch_loss, f1_score = calculate_periodicity_metrics(audio_16_khz, audio_hat_16khz)
         else:
             periodicity_loss = pitch_loss = f1_score = 0
@@ -215,7 +191,6 @@ class VocosExp(pl.LightningModule):
 
         if self.hparams.evaluate_pesq:
             from pesq import pesq
-
             pesq_score = 0
             for ref, deg in zip(audio_16_khz.cpu().numpy(), audio_hat_16khz.cpu().numpy()):
                 pesq_score += pesq(16000, ref, deg, "wb", on_error=1)
