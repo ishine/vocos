@@ -26,8 +26,7 @@ Clone of official ***Vocos***, Frame-level vocoder based on Fourier-basis.
 ```bash
 # pip install "torch==2.0.0" -q      # Based on your environment (validated with vX.YZ)
 # pip install "torchaudio==2.0.1" -q # Based on your environment
-pip install vocos        # For inference
-pip install vocos[train] # For training
+pip install git+https://github.com/tarepan/vocos-official
 ```
 
 ### Inference

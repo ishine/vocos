@@ -1,0 +1,41 @@
+[tool.poetry]
+name = "vocos"
+version = "0.0.3"
+description = "Fourier-based neural vocoder for high-quality audio synthesis"
+authors = ["Hubert Siuzdak", "tarepan"]
+readme = "README.md"
+repository = "https://github.com/tarepan/vocos-official"
+
+[tool.poetry.dependencies]
+python = "^3.10"
+numpy = "^1.22.4"
+scipy = "^1.8.1"
+einops = "^0.6.0"
+pyyaml = "^6.0"
+huggingface_hub = "^0.16.0"
+encodec==0.1.1
+## Poetry is not good for version control of PyTorch (it has many many variants for a version, so poetry become confused)
+## torch = "2.0.0"
+## torchaudio = "2.0.1"
+
+[tool.poetry.dev-dependencies]
+types-tqdm = "4.*"
+pytest = "7.*"
+pytorch_lightning==1.8.6
+jsonargparse[signatures] = "^4.21.0"
+transformers = "^4.28.0"
+matplotlib = "^3.7.0"
+torchcrepe = "^0.0.19"
+pesq = "0.0.4"
+fairseq = "0.12.2"
+
+[build-system]
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"
+
+[tool.pylint.messages_control]
+disable = [
+  # This is opinionated
+  "line-too-long",
+  "pointless-string-statement",
+]
