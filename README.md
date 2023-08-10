@@ -86,6 +86,17 @@ Improved versions (2500K steps)
 ### Train
 Jump to ☞ [![ColabBadge]][notebook], then Run. That's all!
 
+## Results
+### Sample <!-- omit in toc -->
+[Demo](#demo)
+
+### Performance <!-- omit in toc -->
+- training
+  - 8.9 [iter/sec] @ NVIDIA A100 on paperspace gradient Notebook (MatMulTF32+/ConvTF32+/AMP+)
+  - take about 1.3 days for whole training
+- inference
+  - RTF 18.7 @ Google Colab CPU instance (two cores exist, not knowning whether both cores are used)
+
 ## References
 ### Original paper <!-- omit in toc -->
 [![PaperBadge]][paper]  
