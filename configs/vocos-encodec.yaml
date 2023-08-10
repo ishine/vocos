@@ -6,17 +6,17 @@ data:
   init_args:
     train_params:
       filelist_path: filelist.train
-      sampling_rate: 24000
-      num_samples: 24000
-      batch_size: 16
-      num_workers: 8
+      sampling_rate:  24000
+      num_samples:    24000
+      batch_size:        16
+      num_workers:        8
 
     val_params:
       filelist_path: filelist.eval
-      sampling_rate: 24000
-      num_samples: 24000
-      batch_size: 16
-      num_workers: 8
+      sampling_rate:  24000
+      num_samples:   168000
+      batch_size:        16
+      num_workers:        8
 
 model:
   class_path: vocos.experiment.VocosEncodecExp
