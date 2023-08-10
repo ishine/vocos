@@ -74,18 +74,11 @@ class VocosDataset(Dataset):
             y, sr = torchaudio.load(audio_path)
             self._cache[index] = y, sr
         y, sr = self._cache[index]
-
-        # to-Mono :: (Channel, T) -> (1, T)
-        if y.size(0) > 1:
-            y = y.mean(dim=0, keepdim=True)
+        assert sr == self.sampling_rate
 
         # Gain randomize/standardize
         gain = np.random.uniform(-1, -6) if self.train else -3
         y, _ = torchaudio.sox_effects.apply_effects_tensor(y, sr, [["norm", f"{gain:.2f}"]])
-
-        # Resampling
-        if sr != self.sampling_rate:
-            y = torchaudio.functional.resample(y, orig_freq=sr, new_freq=self.sampling_rate)
 
         # Padding & Clipping
         if y.size(-1) < self.num_samples:
