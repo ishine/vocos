@@ -24,24 +24,24 @@ class VocosExp(pl.LightningModule):
         head:                  FourierHead,
         sample_rate:           int,
         initial_learning_rate: float,
-        mel_loss_coeff:        float = 45,
-        mrd_loss_coeff:        float = 1.0,
+        mel_loss_coeff:        float,
+        mrd_loss_coeff:        float,
         evaluate_utmos:        bool  = False,
         evaluate_pesq:         bool  = False,
         evaluate_periodicty:   bool  = False,
     ):
         """
         Args:
-            feature_extractor (FeatureExtractor): An instance of FeatureExtractor to extract features from audio signals.
-            backbone (Backbone): An instance of Backbone model.
-            head (FourierHead):  An instance of Fourier head to generate spectral coefficients and reconstruct a waveform.
-            sample_rate (int): Sampling rate of the audio signals.
-            initial_learning_rate (float): Initial learning rate for the optimizer.
-            mel_loss_coeff     - Coefficient for Mel-spectrogram loss in the loss function
-            mrd_loss_coeff (float, optional): Coefficient for Multi Resolution Discriminator loss. Default is 1.0.
-            evaluate_utmos (bool, optional): If True, UTMOS scores are computed for each validation run.
-            evaluate_pesq (bool, optional): If True, PESQ scores are computed for each validation run.
-            evaluate_periodicty (bool, optional): If True, periodicity scores are computed for each validation run.
+            feature_extractor     - An instance of FeatureExtractor to extract features from audio signals
+            backbone              - An instance of Backbone model
+            head                  - An instance of Fourier head to generate spectral coefficients and reconstruct a waveform
+            sample_rate           - Sampling rate of the audio signals
+            initial_learning_rate - Initial learning rate for the optimizer
+            mel_loss_coeff        - Coefficient for Mel-spectrogram loss in the loss function
+            mrd_loss_coeff        - Coefficient for Multi Resolution Discriminator loss
+            evaluate_utmos        - Whether to compute UTMOS       scores for each validation run
+            evaluate_pesq         - Whether to compute PESQ        scores for each validation run
+            evaluate_periodicty   - Whether to compute periodicity scores for each validation run
         """
         super().__init__()
         self.save_hyperparameters(ignore=["feature_extractor", "backbone", "head"])
@@ -60,14 +60,16 @@ class VocosExp(pl.LightningModule):
         self.melspec_loss       = MelSpecReconstructionLoss(sample_rate=sample_rate)
 
     def configure_optimizers(self):
+        """AdamW with Cosine scheduler for both G and D."""
+
         disc_params = [
             {"params": self.multiperioddisc.parameters()},
-            {"params": self.multiresddisc.parameters()},
+            {"params":   self.multiresddisc.parameters()},
         ]
         gen_params = [
             {"params": self.feature_extractor.parameters()},
-            {"params": self.backbone.parameters()},
-            {"params": self.head.parameters()},
+            {"params":          self.backbone.parameters()},
+            {"params":              self.head.parameters()},
         ]
 
         opt_disc = torch.optim.AdamW(disc_params, lr=self.hparams.initial_learning_rate)
@@ -87,6 +89,7 @@ class VocosExp(pl.LightningModule):
         return self.head(self.backbone(self.feature_extractor(audio_input, **kwargs), **kwargs))
 
     def training_step(self, batch, batch_idx, optimizer_idx, **kwargs):
+
         audio_input = batch
 
         # D
@@ -97,7 +100,7 @@ class VocosExp(pl.LightningModule):
             real_score_mp, gen_score_mp, _, _ = self.multiperioddisc(y=audio_input, y_hat=audio_hat, **kwargs,)
             real_score_mrd, gen_score_mrd, _, _ = self.multiresddisc(y=audio_input, y_hat=audio_hat, **kwargs,)
             # D_Loss
-            loss_mp,  loss_mp_real,  _ = self.disc_loss(disc_real_outputs=real_score_mp, disc_generated_outputs=gen_score_mp)
+            loss_mp,  loss_mp_real,  _ = self.disc_loss(disc_real_outputs=real_score_mp,  disc_generated_outputs=gen_score_mp)
             loss_mrd, loss_mrd_real, _ = self.disc_loss(disc_real_outputs=real_score_mrd, disc_generated_outputs=gen_score_mrd)
             loss_mp  /= len(loss_mp_real)
             loss_mrd /= len(loss_mrd_real)
@@ -120,7 +123,7 @@ class VocosExp(pl.LightningModule):
             loss_gen_mrd, list_loss_gen_mrd = self.gen_loss(disc_outputs=gen_score_mrd)
             loss_gen_mp  = loss_gen_mp  / len(list_loss_gen_mp)
             loss_gen_mrd = loss_gen_mrd / len(list_loss_gen_mrd)
-            loss_fm_mp   = self.feat_matching_loss(fmap_r=fmap_rs_mp, fmap_g=fmap_gs_mp) / len(fmap_rs_mp)
+            loss_fm_mp   = self.feat_matching_loss(fmap_r=fmap_rs_mp, fmap_g=fmap_gs_mp)   / len(fmap_rs_mp)
             loss_fm_mrd  = self.feat_matching_loss(fmap_r=fmap_rs_mrd, fmap_g=fmap_gs_mrd) / len(fmap_rs_mrd)
             loss_mel     = self.melspec_loss(audio_hat, audio_input)
             loss = (
@@ -186,55 +189,42 @@ class VocosExp(pl.LightningModule):
         total_loss = mel_loss + (5 - utmos_score) + (5 - pesq_score)
 
         return {
-            "val_loss": total_loss,
-            "mel_loss": mel_loss,
-            "utmos_score": utmos_score,
-            "pesq_score": pesq_score,
+            "val_loss":         total_loss,
+            "mel_loss":         mel_loss,
+            "utmos_score":      utmos_score,
+            "pesq_score":       pesq_score,
             "periodicity_loss": periodicity_loss,
-            "pitch_loss": pitch_loss,
-            "f1_score": f1_score,
-            "audio_input": audio_input[0],
-            "audio_pred": audio_hat[0],
+            "pitch_loss":       pitch_loss,
+            "f1_score":         f1_score,
+            "audio_input":      audio_input[0],
+            "audio_pred":       audio_hat[0],
         }
 
     def validation_epoch_end(self, outputs):
         if self.global_rank == 0:
             *_, audio_in, audio_pred = outputs[0].values()
-            self.logger.experiment.add_audio(
-                "val_in", audio_in.data.cpu().numpy(), self.global_step, self.hparams.sample_rate
-            )
-            self.logger.experiment.add_audio(
-                "val_pred", audio_pred.data.cpu().numpy(), self.global_step, self.hparams.sample_rate
-            )
+            self.logger.experiment.add_audio("val_in",     audio_in.data.cpu().numpy(), self.global_step, self.hparams.sample_rate)
+            self.logger.experiment.add_audio("val_pred", audio_pred.data.cpu().numpy(), self.global_step, self.hparams.sample_rate)
             mel_target = safe_log(self.melspec_loss.mel_spec(audio_in))
-            mel_hat = safe_log(self.melspec_loss.mel_spec(audio_pred))
-            self.logger.experiment.add_image(
-                "val_mel_target",
-                plot_spectrogram_to_numpy(mel_target.data.cpu().numpy()),
-                self.global_step,
-                dataformats="HWC",
-            )
-            self.logger.experiment.add_image(
-                "val_mel_hat",
-                plot_spectrogram_to_numpy(mel_hat.data.cpu().numpy()),
-                self.global_step,
-                dataformats="HWC",
-            )
-        avg_loss = torch.stack([x["val_loss"] for x in outputs]).mean()
-        mel_loss = torch.stack([x["mel_loss"] for x in outputs]).mean()
-        utmos_score = torch.stack([x["utmos_score"] for x in outputs]).mean()
-        pesq_score = torch.stack([x["pesq_score"] for x in outputs]).mean()
+            mel_hat    = safe_log(self.melspec_loss.mel_spec(audio_pred))
+            self.logger.experiment.add_image("val_mel_target", plot_spectrogram_to_numpy(mel_target.data.cpu().numpy()), self.global_step, dataformats="HWC")
+            self.logger.experiment.add_image("val_mel_hat",    plot_spectrogram_to_numpy(   mel_hat.data.cpu().numpy()), self.global_step, dataformats="HWC")
+        # Stats
+        avg_loss      = torch.stack([x["val_loss"]         for x in outputs]).mean()
+        mel_loss      = torch.stack([x["mel_loss"]         for x in outputs]).mean()
+        utmos_score   = torch.stack([x["utmos_score"]      for x in outputs]).mean()
+        pesq_score    = torch.stack([x["pesq_score"]       for x in outputs]).mean()
         periodicity_loss = np.array([x["periodicity_loss"] for x in outputs]).mean()
-        pitch_loss = np.array([x["pitch_loss"] for x in outputs]).mean()
-        f1_score = np.array([x["f1_score"] for x in outputs]).mean()
-
-        self.log("val_loss", avg_loss, sync_dist=True)
-        self.log("val/mel_loss", mel_loss, sync_dist=True)
-        self.log("val/utmos_score", utmos_score, sync_dist=True)
-        self.log("val/pesq_score", pesq_score, sync_dist=True)
+        pitch_loss       = np.array([x["pitch_loss"]       for x in outputs]).mean()
+        f1_score         = np.array([x["f1_score"]         for x in outputs]).mean()
+        # Logging
+        self.log("val_loss",             avg_loss,         sync_dist=True)
+        self.log("val/mel_loss",         mel_loss,         sync_dist=True)
+        self.log("val/utmos_score",      utmos_score,      sync_dist=True)
+        self.log("val/pesq_score",       pesq_score,       sync_dist=True)
         self.log("val/periodicity_loss", periodicity_loss, sync_dist=True)
-        self.log("val/pitch_loss", pitch_loss, sync_dist=True)
-        self.log("val/f1_score", f1_score, sync_dist=True)
+        self.log("val/pitch_loss",       pitch_loss,       sync_dist=True)
+        self.log("val/f1_score",         f1_score,         sync_dist=True)
 
     @property
     def global_step(self):
