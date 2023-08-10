@@ -27,8 +27,8 @@ model:
     mrd_loss_coeff:  1
 
     # automatic evaluation
-    evaluate_utmos: true
-    evaluate_pesq: true
+    evaluate_utmos:      true
+    evaluate_pesq:      false
     evaluate_periodicty: true
 
     feature_extractor:
