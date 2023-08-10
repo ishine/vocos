@@ -24,7 +24,7 @@ model:
     sample_rate: 24000
     initial_learning_rate: 2e-4
     mel_loss_coeff: 45
-    mrd_loss_coeff: 1.0
+    mrd_loss_coeff:  1
 
     # automatic evaluation
     evaluate_utmos: true

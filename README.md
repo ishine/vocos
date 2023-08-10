@@ -99,6 +99,12 @@ Eprint = {arXiv:2306.00814},
 }
 ```
 
+### Info from official Vocos
+- `mrd_loss_coeff=1.0` might be better than default `0.1`
+
+> Also, you might want to set the mrd_loss_coeff to 1.0 right from the start. In my experience, it does slow down the convergence in terms of the UTMOS score a bit, but it's key for reducing the buzziness in the audio output.  
+> [issue#3](https://github.com/charactr-platform/vocos/issues/3)
+
 ### Acknowlegements <!-- omit in toc -->
 - [Official Vocos](https://github.com/charactr-platform/vocos)
 
