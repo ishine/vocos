@@ -2,6 +2,7 @@ from dataclasses import dataclass
 
 import numpy as np
 import torch
+from torch import Tensor
 import torchaudio
 from pytorch_lightning import LightningDataModule
 from torch.utils.data import Dataset, DataLoader
@@ -23,17 +24,25 @@ class VocosDataModule(LightningDataModule):
         super().__init__()
         self.train_config = train_params
         self.val_config   = val_params
+        
+        self._train_loader: None | DataLoader = None
+        self._val_loader:   None | DataLoader = None
 
-    def _get_dataloder(self, cfg: DataConfig, train: bool):
-        dataset = VocosDataset(cfg, train=train)
-        dataloader = DataLoader(dataset, batch_size=cfg.batch_size, num_workers=cfg.num_workers, shuffle=train, pin_memory=True)
-        return dataloader
+    def _set_dataloder(self, cfg: DataConfig, train: bool):
+        if train and self._train_loader is None:
+            dataset = VocosDataset(cfg, train=train)
+            self._train_loader = DataLoader(dataset, batch_size=cfg.batch_size, num_workers=cfg.num_workers, shuffle=train, pin_memory=True, persistent_workers=True)
+        if not train and self._val_loader is None:
+            dataset = VocosDataset(cfg, train=train)
+            self._val_loader   = DataLoader(dataset, batch_size=cfg.batch_size, num_workers=cfg.num_workers, shuffle=train, pin_memory=True, persistent_workers=True)
 
     def train_dataloader(self) -> DataLoader:
-        return self._get_dataloder(self.train_config, train=True)
+        self._set_dataloder(self.train_config, train=True)
+        return self._train_loader
 
     def val_dataloader(self) -> DataLoader:
-        return self._get_dataloder(self.val_config,   train=False)
+        self._set_dataloder(self.val_config,   train=False)
+        return self._val_loader
 
 
 class VocosDataset(Dataset):
@@ -45,11 +54,12 @@ class VocosDataset(Dataset):
         self.sampling_rate = cfg.sampling_rate
         self.num_samples = cfg.num_samples
         self.train = train
+        self._cache: list[None|tuple[Tensor, int]] = [None for _ in range(len(self.filelist))]
 
     def __len__(self) -> int:
         return len(self.filelist)
 
-    def __getitem__(self, index: int) -> torch.Tensor:
+    def __getitem__(self, index: int) -> Tensor:
         """
         Args:
             index - Item index
@@ -57,10 +67,13 @@ class VocosDataset(Dataset):
             :: (T,) - Audio segment
         """
 
-        audio_path = self.filelist[index]
-
         # Load :: -> (Channel, T)
-        y, sr = torchaudio.load(audio_path)
+        if self._cache[index] is None:
+            # From disk and make cache
+            audio_path = self.filelist[index]
+            y, sr = torchaudio.load(audio_path)
+            self._cache[index] = y, sr
+        y, sr = self._cache[index]
 
         # to-Mono :: (Channel, T) -> (1, T)
         if y.size(0) > 1:
