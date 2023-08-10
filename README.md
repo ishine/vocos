@@ -84,19 +84,7 @@ Improved versions (2500K steps)
 | [charactr/vocos-encodec-24khz](https://huggingface.co/charactr/vocos-encodec-24khz) | DNS Challenge | 2.5 M               |  7.9 M     |
 
 ### Train
-
-Prepare a filelist of audio files for the training and validation set:
-
-```bash
-find $TRAIN_DATASET_DIR -name *.wav > filelist.train
-find $VAL_DATASET_DIR -name *.wav > filelist.val
-```
-
-Fill a config file, e.g. [vocos.yaml](configs%2Fvocos.yaml), with your filelist paths and start training with:
-
-```bash
-python train.py -c configs/vocos.yaml
-```
+Jump to ☞ [![ColabBadge]][notebook], then Run. That's all!
 
 ## References
 ### Original paper <!-- omit in toc -->
