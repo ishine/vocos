@@ -92,7 +92,7 @@ Jump to ☞ [![ColabBadge]][notebook], then Run. That's all!
 
 ### Performance <!-- omit in toc -->
 - training
-  - 8.9 [iter/sec] @ NVIDIA A100 on paperspace gradient Notebook (MatMulTF32+/ConvTF32+/AMP+)
+  - 9.2 [iter/sec] @ NVIDIA A100 on paperspace gradient Notebook (MatMulTF32+/ConvTF32+/AMP+)
   - take about 1.3 days for whole training
 - inference
   - RTF 18.7 @ Google Colab CPU instance (two cores exist, not knowning whether both cores are used)
