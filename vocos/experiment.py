@@ -139,14 +139,6 @@ class VocosExp(pl.LightningModule):
             self.log("generator/feature_matching_mrd", loss_fm_mrd)
             self.log("generator/total_loss",           loss,        prog_bar=True)
             self.log("generator/mel_loss",             loss_mel)
-            if self.global_step % 1000 == 0 and self.global_rank == 0:
-                self.logger.experiment.add_audio("train/audio_in", audio_input[0].data.cpu(), self.global_step, self.hparams.sample_rate)
-                self.logger.experiment.add_audio("train/audio_pred", audio_hat[0].data.cpu(), self.global_step, self.hparams.sample_rate)
-                with torch.no_grad():
-                    mel     = safe_log(self.melspec_loss.mel_spec(audio_input[0]))
-                    mel_hat = safe_log(self.melspec_loss.mel_spec(audio_hat[0]))
-                self.logger.experiment.add_image("train/mel_target", plot_spectrogram_to_numpy(mel.data.cpu().numpy()),     self.global_step, dataformats="HWC")
-                self.logger.experiment.add_image("train/mel_pred",   plot_spectrogram_to_numpy(mel_hat.data.cpu().numpy()), self.global_step, dataformats="HWC")
             # G_Backward/Optim (automatic)
             return loss
 
