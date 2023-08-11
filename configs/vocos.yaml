@@ -48,7 +48,7 @@ model:
         dim:               512
         intermediate_dim: 1536
         num_layers:          8
-        kernel_prenet:       7
+        kernel_prenet:       1
         kernel_convnx:       7
 
     head:
