@@ -27,9 +27,9 @@ model:
     mrd_loss_coeff:  1
 
     # automatic evaluation
-    evaluate_utmos:      true
-    evaluate_pesq:      false
-    evaluate_periodicty: true
+    evaluate_utmos:       true
+    evaluate_pesq:       false
+    evaluate_periodicty: false
 
     feature_extractor:
       class_path: vocos.feature_extractors.EncodecFeatures
