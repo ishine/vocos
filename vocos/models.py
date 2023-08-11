@@ -38,6 +38,7 @@ class VocosBackbone(Backbone):
         num_layers:       int,
         layer_scale_init_value: None | float = None,
         adanorm_num_embeddings: None | int   = None,
+        kernel_prenet:                 int   = 7,
         kernel_convnx:                 int   = 7,
     ):
         """
@@ -53,7 +54,7 @@ class VocosBackbone(Backbone):
 
         feat_i, feat_o = input_channels, dim
 
-        self.embed = nn.Conv1d(feat_i, feat_o, kernel_size=7, padding="same")
+        self.embed = nn.Conv1d(feat_i, feat_o, kernel_prenet, padding="same")
         self.adanorm = adanorm_num_embeddings is not None
         self.norm = AdaLayerNorm(adanorm_num_embeddings, feat_o, eps=1e-6) if adanorm_num_embeddings else nn.LayerNorm(feat_o, eps=1e-6)
         layer_scale_init_value = layer_scale_init_value or 1 / num_layers
