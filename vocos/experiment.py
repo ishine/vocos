@@ -194,13 +194,14 @@ class VocosExp(pl.LightningModule):
 
     def validation_epoch_end(self, outputs):
         if self.global_rank == 0:
-            *_, audio_in, audio_pred = outputs[0].values()
-            self.logger.experiment.add_audio("val_in",     audio_in.data.cpu().numpy(), self.global_step, self.hparams.sample_rate)
-            self.logger.experiment.add_audio("val_pred", audio_pred.data.cpu().numpy(), self.global_step, self.hparams.sample_rate)
-            mel_target = safe_log(self.melspec_loss.mel_spec(audio_in))
-            mel_hat    = safe_log(self.melspec_loss.mel_spec(audio_pred))
-            self.logger.experiment.add_image("val_mel_target", plot_spectrogram_to_numpy(mel_target.data.cpu().numpy()), self.global_step, dataformats="HWC")
-            self.logger.experiment.add_image("val_mel_hat",    plot_spectrogram_to_numpy(   mel_hat.data.cpu().numpy()), self.global_step, dataformats="HWC")
+            for i in range(len(outputs)):
+                *_, audio_in, audio_pred = outputs[i].values()
+                self.logger.experiment.add_audio(f"val/in_{i}",     audio_in.data.cpu().numpy(), self.global_step, self.hparams.sample_rate)
+                self.logger.experiment.add_audio(f"val/pred_{i}", audio_pred.data.cpu().numpy(), self.global_step, self.hparams.sample_rate)
+                mel_target = safe_log(self.melspec_loss.mel_spec(audio_in))
+                mel_hat    = safe_log(self.melspec_loss.mel_spec(audio_pred))
+                self.logger.experiment.add_image(f"val/mel_target_{i}", plot_spectrogram_to_numpy(mel_target.data.cpu().numpy()), self.global_step, dataformats="HWC")
+                self.logger.experiment.add_image(f"val/mel_hat_{i}",    plot_spectrogram_to_numpy(   mel_hat.data.cpu().numpy()), self.global_step, dataformats="HWC")
         # Stats
         avg_loss      = torch.stack([x["val_loss"]         for x in outputs]).mean()
         mel_loss      = torch.stack([x["mel_loss"]         for x in outputs]).mean()
