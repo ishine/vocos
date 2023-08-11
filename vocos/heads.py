@@ -1,6 +1,6 @@
 from typing import Literal
 import torch
-from torch import nn
+from torch import nn, clip, exp, cos, sin
 from torchaudio.functional.functional import _hz_to_mel, _mel_to_hz
 
 from vocos.spectral_ops import IMDCT, ISTFT
@@ -52,23 +52,14 @@ class ISTFTHead(FourierHead):
         # Dimension matching :: (B, Frame, Feat=i) -> (B, Frame, Feat=2*freq) -> (B, Feat=2*freq, Frame)
         x = self.out(x).transpose(1, 2)
 
-        # feat-to-complexSpec :: (B, Feat=2*freq, Frame) -> 2 x (B, Freq, Frame) -> (B, Freq, Frame)
-        mag, p = x.chunk(2, dim=1)
-        mag = torch.exp(mag)
-        mag = torch.clip(mag, max=1e2)  # safeguard to prevent excessively large magnitudes
-        # Wrapping :: [-∞,+∞]::(B, Freq, Frame) -> [-1,+1]::(B, Freq, Frame) - Produce real and imaginary value 
-        x, y = torch.cos(p), torch.sin(p)
-        # recalculating phase here does not produce anything new
-        # only costs time
-        # phase = torch.atan2(y, x)
-        # S = mag * torch.exp(phase * 1j)
-        # better directly produce the complex value 
-        S = mag * (x + 1j * y)
+        # feat-to-complexSpec :: (B, Feat=2*freq, Frame) -> 2 x (B, Freq, Frame) -> (B, Freq, Frame) - Magnitude (absolute value) scaling & Phase (argument) wrapping
+        logabs, arg = x.chunk(2, dim=1)
+        complex_spec = clip(exp(logabs), max=1e2) * (cos(arg) + 1j * sin(arg))
 
         # complexSpec-to-wave :: (B, Freq, Frame) -> (B, T) - iSTFT
-        audio = self.istft(S)
+        wave = self.istft(complex_spec)
 
-        return audio
+        return wave
 
 
 class IMDCTSymExpHead(FourierHead):
