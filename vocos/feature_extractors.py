@@ -1,11 +1,22 @@
 from typing import List
 
 import torch
+from torch import nn, Tensor
 import torchaudio
 from encodec import EncodecModel
-from torch import nn
 
 from vocos.modules import safe_log
+
+
+def rect_window(window_length: int, periodic: None | bool = True, *, dtype: None | torch.dtype = None, device: None | torch.device = None) -> Tensor:
+    """Generate Rectangular window."""
+    window = torch.ones([window_length,])
+    if dtype is not None:
+        window = window.to(dtype)
+    if device is not None:
+        window = window.to(device)
+
+    return window
 
 
 class FeatureExtractor(nn.Module):
@@ -27,7 +38,7 @@ class FeatureExtractor(nn.Module):
 
 class MelSpectrogramFeatures(FeatureExtractor):
     """Wave-to-Mel feature extractor."""
-    def __init__(self, sample_rate=24000, n_fft=1024, hop_length=256, n_mels=100, padding="center"):
+    def __init__(self, sample_rate=24000, n_fft=1024, hop_length=256, n_mels=100, padding="center", no_window: bool = False):
         super().__init__()
         if padding not in ["center", "same"]:
             raise ValueError("Padding must be 'center' or 'same'.")
@@ -39,6 +50,7 @@ class MelSpectrogramFeatures(FeatureExtractor):
             n_mels=n_mels,
             center=padding == "center",
             power=1,
+            window_fn = torch.hann_window if not no_window else rect_window,
         )
 
     def forward(self, audio, **kwargs):
@@ -56,8 +68,12 @@ class EncodecFeatures(FeatureExtractor):
         encodec_model: str = "encodec_24khz",
         bandwidths: List[float] = [1.5, 3.0, 6.0, 12.0],
         train_codebooks: bool = False,
+        no_window: bool = False,
     ):
         super().__init__()
+
+        assert not no_window, "`no_window` is not supported yet."
+
         if encodec_model == "encodec_24khz":
             encodec = EncodecModel.encodec_model_24khz
         elif encodec_model == "encodec_48khz":

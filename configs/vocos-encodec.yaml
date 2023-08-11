@@ -37,6 +37,7 @@ model:
         encodec_model: encodec_24khz
         bandwidths: [1.5, 3.0, 6.0, 12.0]
         train_codebooks: false
+        no_window:   false
 
     backbone:
       class_path: vocos.models.VocosBackbone

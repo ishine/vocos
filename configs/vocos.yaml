@@ -39,6 +39,7 @@ model:
         hop_length:    256
         n_mels:        100
         padding:    center
+        no_window:   false
 
     backbone:
       class_path: vocos.models.VocosBackbone
