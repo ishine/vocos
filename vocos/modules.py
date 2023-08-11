@@ -16,6 +16,7 @@ class ConvNeXtBlock(nn.Module):
     def __init__(self,
         dim:                    int,
         intermediate_dim:       int,
+        kernel:                 int,
         layer_scale_init_value: None | float = None,
         adanorm_num_embeddings: None | int   = None,
     ):
@@ -30,7 +31,7 @@ class ConvNeXtBlock(nn.Module):
 
         feat_io, feat_h = dim, intermediate_dim
         # DepthwiseConv/Norm
-        self.dwconv = nn.Conv1d(feat_io, feat_io, kernel_size=7, padding="same", groups=feat_io)
+        self.dwconv = nn.Conv1d(feat_io, feat_io, kernel, padding="same", groups=feat_io)
         self.adanorm = adanorm_num_embeddings is not None
         self.norm = AdaLayerNorm(adanorm_num_embeddings, feat_io, eps=1e-6) if adanorm_num_embeddings else nn.LayerNorm(feat_io, eps=1e-6)
         # PointwiseConv/GELU/PointwiseConv/γ

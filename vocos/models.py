@@ -38,6 +38,7 @@ class VocosBackbone(Backbone):
         num_layers:       int,
         layer_scale_init_value: None | float = None,
         adanorm_num_embeddings: None | int   = None,
+        kernel_convnx:                 int   = 7,
     ):
         """
         Args:
@@ -57,7 +58,7 @@ class VocosBackbone(Backbone):
         self.norm = AdaLayerNorm(adanorm_num_embeddings, feat_o, eps=1e-6) if adanorm_num_embeddings else nn.LayerNorm(feat_o, eps=1e-6)
         layer_scale_init_value = layer_scale_init_value or 1 / num_layers
         self.convnext = nn.ModuleList([
-            ConvNeXtBlock(dim=feat_o, intermediate_dim=intermediate_dim, layer_scale_init_value=layer_scale_init_value, adanorm_num_embeddings=adanorm_num_embeddings)
+            ConvNeXtBlock(dim=feat_o, intermediate_dim=intermediate_dim, kernel=kernel_convnx, layer_scale_init_value=layer_scale_init_value, adanorm_num_embeddings=adanorm_num_embeddings)
             for _ in range(num_layers)
         ])
         self.final_layer_norm = nn.LayerNorm(feat_o, eps=1e-6)
