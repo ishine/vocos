@@ -28,6 +28,7 @@ matplotlib = "^3.7.0"
 torchcrepe = "^0.0.19"
 pesq = "0.0.4"
 fairseq = "0.12.2"
+extorch = {git = "https://github.com/tarepan/extorch", rev = "main"}
 
 [build-system]
 requires = ["poetry-core"]

@@ -5,6 +5,7 @@ from typing import Optional
 import torch
 from torch import nn, Tensor
 from torch.nn.utils import weight_norm, remove_weight_norm
+from extorch import Conv1dEx                               # pyright: ignore [reportMissingTypeStubs]
 
 
 class ConvNeXtBlock(nn.Module):
@@ -19,6 +20,7 @@ class ConvNeXtBlock(nn.Module):
         kernel:                 int,
         layer_scale_init_value: None | float = None,
         adanorm_num_embeddings: None | int   = None,
+        c:                      bool         = False,
     ):
         """
         Args:
@@ -31,7 +33,9 @@ class ConvNeXtBlock(nn.Module):
 
         feat_io, feat_h = dim, intermediate_dim
         # DepthwiseConv/Norm
-        self.dwconv = nn.Conv1d(feat_io, feat_io, kernel, padding="same", groups=feat_io)
+        self.dwconv     = nn.Conv1d(feat_io, feat_io, kernel,              padding="same", groups=feat_io)
+        if c:
+            self.dwconv =  Conv1dEx(feat_io, feat_io, kernel, causal=True, padding="same", groups=feat_io)
         self.adanorm = adanorm_num_embeddings is not None
         self.norm = AdaLayerNorm(adanorm_num_embeddings, feat_io, eps=1e-6) if adanorm_num_embeddings else nn.LayerNorm(feat_io, eps=1e-6)
         # PointwiseConv/GELU/PointwiseConv/γ

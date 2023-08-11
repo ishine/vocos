@@ -50,6 +50,7 @@ model:
         num_layers:          8
         kernel_prenet:       1
         kernel_convnx:       7
+        c:               false
 
     head:
       class_path: vocos.heads.ISTFTHead
