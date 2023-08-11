@@ -1,8 +1,9 @@
 from typing import Tuple, List
 
 import torch
-from torch import nn
+from torch import nn, Tensor
 from torch.nn import Conv2d
+import torch.nn.functional as F
 from torch.nn.utils import weight_norm
 
 
@@ -101,23 +102,20 @@ class DiscriminatorP(nn.Module):
 class MultiResolutionDiscriminator(nn.Module):
     def __init__(
         self,
-        resolutions: Tuple[Tuple[int, int, int]] = ((1024, 256, 1024), (2048, 512, 2048), (512, 128, 512)),
-        num_embeddings: int = None,
+        resolutions: tuple[tuple[int, int, int]] = ((1024, 256, 1024), (2048, 512, 2048), (512, 128, 512)),
+        num_embeddings: None | int = None,
     ):
         """
         Multi-Resolution Discriminator module adapted from https://github.com/mindslab-ai/univnet.
         Additionally, it allows incorporating conditional information with a learned embeddings table.
 
         Args:
-            resolutions (tuple[tuple[int, int, int]]): Tuple of resolutions for each discriminator.
-                Each resolution should be a tuple of (n_fft, hop_length, win_length).
-            num_embeddings (int, optional): Number of embeddings. None means non-conditional discriminator.
-                Defaults to None.
+            resolutions    - triplet (nfft, hop, winLength) for each discriminator. Default: 3/4 overlaped nfft=512/1024/2048
+            num_embeddings - Number of embeddings for conditional discriminator (None for unconditional Disc)
         """
         super().__init__()
-        self.discriminators = nn.ModuleList(
-            [DiscriminatorR(resolution=r, num_embeddings=num_embeddings) for r in resolutions]
-        )
+
+        self.discriminators = nn.ModuleList([DiscriminatorR(resolution=r, num_embeddings=num_embeddings) for r in resolutions])
 
     def forward(
         self, y: torch.Tensor, y_hat: torch.Tensor, bandwidth_id: torch.Tensor = None
@@ -128,7 +126,7 @@ class MultiResolutionDiscriminator(nn.Module):
         fmap_gs = []
 
         for d in self.discriminators:
-            y_d_r, fmap_r = d(x=y, cond_embedding_id=bandwidth_id)
+            y_d_r, fmap_r = d(x=y,     cond_embedding_id=bandwidth_id)
             y_d_g, fmap_g = d(x=y_hat, cond_embedding_id=bandwidth_id)
             y_d_rs.append(y_d_r)
             fmap_rs.append(fmap_r)
@@ -142,38 +140,39 @@ class DiscriminatorR(nn.Module):
     def __init__(
         self,
         resolution: Tuple[int, int, int],
-        channels: int = 64,
-        in_channels: int = 1,
-        num_embeddings: int = None,
-        lrelu_slope: float = 0.1,
+        channels:       int        = 64,
+        in_channels:    int        = 1,
+        num_embeddings: None | int = None,
+        lrelu_slope:    float      = 0.1,
     ):
+        """
+        Args:
+            resolution - n_fft/hop_length/win_length
+        """
         super().__init__()
         self.resolution = resolution
         self.in_channels = in_channels
         self.lrelu_slope = lrelu_slope
-        self.convs = nn.ModuleList(
-            [
-                weight_norm(nn.Conv2d(in_channels, channels, kernel_size=(7, 5), stride=(2, 2), padding=(3, 2))),
-                weight_norm(nn.Conv2d(channels, channels, kernel_size=(5, 3), stride=(2, 1), padding=(2, 1))),
-                weight_norm(nn.Conv2d(channels, channels, kernel_size=(5, 3), stride=(2, 2), padding=(2, 1))),
-                weight_norm(nn.Conv2d(channels, channels, kernel_size=3, stride=(2, 1), padding=1)),
-                weight_norm(nn.Conv2d(channels, channels, kernel_size=3, stride=(2, 2), padding=1)),
-            ]
-        )
+        self.convs = nn.ModuleList([
+            weight_norm(nn.Conv2d(in_channels, channels, kernel_size=(7, 5), stride=(2, 2), padding=(3, 2))),
+            weight_norm(nn.Conv2d(channels,    channels, kernel_size=(5, 3), stride=(2, 1), padding=(2, 1))),
+            weight_norm(nn.Conv2d(channels,    channels, kernel_size=(5, 3), stride=(2, 2), padding=(2, 1))),
+            weight_norm(nn.Conv2d(channels,    channels, kernel_size=3,      stride=(2, 1), padding=1)),
+            weight_norm(nn.Conv2d(channels,    channels, kernel_size=3,      stride=(2, 2), padding=1)),
+        ])
         if num_embeddings is not None:
             self.emb = torch.nn.Embedding(num_embeddings=num_embeddings, embedding_dim=channels)
             torch.nn.init.zeros_(self.emb.weight)
         self.conv_post = weight_norm(nn.Conv2d(channels, 1, (3, 3), padding=(1, 1)))
 
-    def forward(
-        self, x: torch.Tensor, cond_embedding_id: torch.Tensor = None
-    ) -> Tuple[torch.Tensor, List[torch.Tensor]]:
+    def forward(self, x: Tensor, cond_embedding_id: Tensor = None) -> tuple[Tensor, list[Tensor]]:
+        """wave -> (STFT) -> spec -> (Nx[conv2d-LReLU]) -> feat -> (conv2d) -> (cond) -> o_disc."""
         fmap = []
         x = self.spectrogram(x)
         x = x.unsqueeze(1)
-        for l in self.convs:
-            x = l(x)
-            x = torch.nn.functional.leaky_relu(x, self.lrelu_slope)
+        for conv2d in self.convs:
+            x = conv2d(x)
+            x = F.leaky_relu(x, self.lrelu_slope)
             fmap.append(x)
         if cond_embedding_id is not None:
             emb = self.emb(cond_embedding_id)
@@ -189,14 +188,8 @@ class DiscriminatorR(nn.Module):
 
     def spectrogram(self, x: torch.Tensor) -> torch.Tensor:
         n_fft, hop_length, win_length = self.resolution
-        magnitude_spectrogram = torch.stft(
-            x,
-            n_fft=n_fft,
-            hop_length=hop_length,
-            win_length=win_length,
-            window=None,  # interestingly rectangular window kind of works here
-            center=True,
-            return_complex=True,
-        ).abs()
 
-        return magnitude_spectrogram
+        # NOTE: interestingly rectangular window kind of works here
+        mag_spec = torch.stft(x, n_fft=n_fft, hop_length=hop_length, win_length=win_length, window=None, center=True, return_complex=True).abs()
+
+        return mag_spec

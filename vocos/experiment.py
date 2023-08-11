@@ -99,7 +99,7 @@ class VocosExp(pl.LightningModule):
                 audio_hat = self(audio_input, **kwargs)
             real_score_mp, gen_score_mp, _, _ = self.multiperioddisc(y=audio_input, y_hat=audio_hat, **kwargs,)
             real_score_mrd, gen_score_mrd, _, _ = self.multiresddisc(y=audio_input, y_hat=audio_hat, **kwargs,)
-            # D_Loss
+            # D_Loss - Adversarial losses, normalized by the number of sub-discriminators
             loss_mp,  loss_mp_real,  _ = self.disc_loss(disc_real_outputs=real_score_mp,  disc_generated_outputs=gen_score_mp)
             loss_mrd, loss_mrd_real, _ = self.disc_loss(disc_real_outputs=real_score_mrd, disc_generated_outputs=gen_score_mrd)
             loss_mp  /= len(loss_mp_real)
@@ -119,13 +119,17 @@ class VocosExp(pl.LightningModule):
             _, gen_score_mp,  fmap_rs_mp,  fmap_gs_mp  = self.multiperioddisc(y=audio_input, y_hat=audio_hat, **kwargs)
             _, gen_score_mrd, fmap_rs_mrd, fmap_gs_mrd =   self.multiresddisc(y=audio_input, y_hat=audio_hat, **kwargs)
             # G_Loss
+            ## Adversarial losses, normalized by the number of sub-discriminators
             loss_gen_mp,  list_loss_gen_mp  = self.gen_loss(disc_outputs=gen_score_mp)
             loss_gen_mrd, list_loss_gen_mrd = self.gen_loss(disc_outputs=gen_score_mrd)
             loss_gen_mp  = loss_gen_mp  / len(list_loss_gen_mp)
             loss_gen_mrd = loss_gen_mrd / len(list_loss_gen_mrd)
+            ## Feature matching losses, normalized by the number of sub-discriminators
             loss_fm_mp   = self.feat_matching_loss(fmap_r=fmap_rs_mp, fmap_g=fmap_gs_mp)   / len(fmap_rs_mp)
             loss_fm_mrd  = self.feat_matching_loss(fmap_r=fmap_rs_mrd, fmap_g=fmap_gs_mrd) / len(fmap_rs_mrd)
+            ## Mel loss
             loss_mel     = self.melspec_loss(audio_hat, audio_input)
+            ## Total
             loss = (
                                                 loss_gen_mp
                 + self.hparams.mrd_loss_coeff * loss_gen_mrd
@@ -137,8 +141,8 @@ class VocosExp(pl.LightningModule):
             self.log("generator/multi_res_loss",       loss_gen_mrd)
             self.log("generator/feature_matching_mp",  loss_fm_mp)
             self.log("generator/feature_matching_mrd", loss_fm_mrd)
-            self.log("generator/total_loss",           loss,        prog_bar=True)
             self.log("generator/mel_loss",             loss_mel)
+            self.log("generator/total_loss",           loss,        prog_bar=True)
             # G_Backward/Optim (automatic)
             return loss
 
