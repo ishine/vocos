@@ -1,7 +1,8 @@
-from typing import List
+from typing import List, Literal
 
 import torch
-from torch import nn, Tensor
+from torch import nn, Tensor, hann_window
+import torch.nn.functional as F
 import torchaudio
 from encodec import EncodecModel
 
@@ -28,28 +29,50 @@ class FeatureExtractor(nn.Module):
 
 class MelSpectrogramFeatures(FeatureExtractor):
     """Wave-to-Mel feature extractor."""
-    def __init__(self, sample_rate=24000, n_fft=1024, hop_length=256, n_mels=100, padding="center", no_window: bool = False):
+    def __init__(self, sample_rate:int=24000, n_fft:int=1024, hop_length:int=256, n_mels:int=100, padding:Literal["center", "same", "causal"]="center", no_window: bool = False):
         super().__init__()
-        if padding not in ["center", "same"]:
-            raise ValueError("Padding must be 'center' or 'same'.")
+
+        # Validation
+        if padding not in ["center", "same", "causal"]:
+            raise ValueError("Padding must be 'center' or 'same' or 'causal'.")
+
         self.padding = padding
         self.mel_spec = torchaudio.transforms.MelSpectrogram(
             sample_rate=sample_rate,
             n_fft=n_fft,
             hop_length=hop_length,
             n_mels=n_mels,
-            center=padding == "center",
+            center=(padding=="center"), # Automatic center padding | Manual same/causal padding
             power=1,
-            window_fn = torch.hann_window if not no_window else rect_window,
+            window_fn = hann_window if not no_window else rect_window,
         )
 
     def forward(self, audio, **kwargs):
-        if self.padding == "same":
+        """Convert to mel-frequency log-magnitude spectrogram.
+        
+        Args:
+            audio :: (B, T)
+        Returns:
+                  :: (B, Freq, Frame) - Spectrogram, Frame = T//hop ('same') | 
+        """
+        # Automatic center padding - Kernel axis align stride head, drop last
+        if   self.padding == "center":
+            pass
+        # Manual same padding - Kernel axis align with stride center, drop last
+        elif self.padding == "same":
             pad = self.mel_spec.win_length - self.mel_spec.hop_length
-            audio = torch.nn.functional.pad(audio, (pad // 2, pad // 2), mode="reflect")
+            half_pad = pad // 2
+            audio = F.pad(audio, (half_pad, half_pad), mode="reflect")
+        # Manual causal padding - DeltaKernel axis align with stride tail, drop last
+        elif self.padding == "causal":
+            pad = self.mel_spec.win_length - self.mel_spec.hop_length
+            audio = F.pad(audio, (     pad,        0), mode="reflect")
+        else:
+            raise RuntimeError(f"Not supported padding type in wave-to-mel: {self.padding}")
+
         mel = self.mel_spec(audio)
-        features = safe_log(mel)
-        return features
+        mel_freq_log_amp_spec = safe_log(mel)
+        return mel_freq_log_amp_spec
 
 
 class EncodecFeatures(FeatureExtractor):
