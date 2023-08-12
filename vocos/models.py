@@ -3,7 +3,6 @@
     - VocosResNetBackbone: ResBlock1-based
 """
 
-import torch
 from torch import nn, Tensor
 from torch.nn.utils import weight_norm
 

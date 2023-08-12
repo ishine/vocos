@@ -62,7 +62,7 @@ class ISTFT(nn.Module):
             # Fallback to pytorch native implementation
             return torch.istft(cspec, self.n_fft, self.hop_length, self.win_length, self.window, center=True)
 
-        # [same]
+        # [same|causal]
         assert cspec.dim() == 3, "Expected a 3D tensor as input"
         n_frame = cspec.size()[2]
 

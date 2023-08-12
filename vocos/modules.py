@@ -1,7 +1,5 @@
 """Modules used several modules."""
 
-from typing import Optional
-
 import torch
 from torch import nn, Tensor
 from torch.nn.utils import weight_norm, remove_weight_norm
@@ -70,8 +68,7 @@ class ConvNeXtBlock(nn.Module):
         x = self.pwconv1(x)
         x = self.act(x)
         x = self.pwconv2(x)
-        if self.gamma is not None:
-            x = self.gamma * x
+        x = self.gamma * x if (self.gamma is not None) else x
         x = x.transpose(1, 2)
 
         # Residual

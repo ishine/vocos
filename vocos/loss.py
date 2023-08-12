@@ -20,11 +20,12 @@ class MelSpecReconstructionLoss(nn.Module):
     def forward(self, y_hat: Tensor, y: Tensor) -> Tensor:
         """
         Args:
-            y_hat - Predicted audio waveform
+            y_hat :: (B, T) - Predicted audio waveform
             y     - Ground truth audio waveform
         Returns:
                   - The mel loss
         """
+        # :: (B, T) -> (B, Freq, Frame) -> (1,)
         return F.l1_loss(safe_log(self.mel_spec(y_hat)), safe_log(self.mel_spec(y)))
 
 
@@ -36,7 +37,7 @@ class GeneratorLoss(nn.Module):
     def forward(self, disc_outputs: list[Tensor]) -> tuple[Tensor, list[Tensor]]:
         """
         Args:
-            disc_outputs - List of discriminator outputs.
+            disc_outputs :: (B, FreqFrame)[] - List of discriminator outputs.
 
         Returns:
                          - Tuple containing the total loss and a list of loss values from the sub-discriminators
@@ -44,6 +45,7 @@ class GeneratorLoss(nn.Module):
         loss = 0
         gen_losses = []
         for dg in disc_outputs:
+            # :: (B, FreqFrame) -> (1,)
             l = torch.mean(torch.clamp(1 - dg, min=0))
             gen_losses.append(l)
             loss += l
@@ -61,8 +63,8 @@ class DiscriminatorLoss(nn.Module):
     ) -> Tuple[Tensor, list[Tensor], list[Tensor]]:
         """
         Args:
-            disc_real_outputs (List[Tensor]): List of discriminator outputs for real samples.
-            disc_generated_outputs (List[Tensor]): List of discriminator outputs for generated samples.
+            disc_real_outputs      :: (B, FreqFrame)[] - List of discriminator outputs for real samples.
+            disc_generated_outputs :: (B, FreqFrame)[] - List of discriminator outputs for fake samples.
 
         Returns:
             - (tuple)
@@ -74,6 +76,7 @@ class DiscriminatorLoss(nn.Module):
         r_losses = []
         g_losses = []
         for dr, dg in zip(disc_real_outputs, disc_generated_outputs):
+            # :: (B, FreqFrame) -> (1,)
             r_loss = torch.mean(torch.clamp(1 - dr, min=0))
             g_loss = torch.mean(torch.clamp(1 + dg, min=0))
             loss += r_loss + g_loss
