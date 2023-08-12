@@ -3,8 +3,19 @@ from typing import Literal
 import numpy as np
 import scipy
 import torch
-from torch import nn, Tensor, view_as_real, view_as_complex, hann_window
+from torch import nn, Tensor, ones, view_as_real, view_as_complex, hann_window
 import torch.nn.functional as F
+
+
+def rect_window(window_length: int, periodic: None | bool = True, *, dtype: None | torch.dtype = None, device: None | torch.device = None) -> Tensor:
+    """Generate Rectangular window."""
+    window = ones([window_length,])
+    if dtype is not None:
+        window = window.to(dtype)
+    if device is not None:
+        window = window.to(device)
+
+    return window
 
 
 class ISTFT(nn.Module):
@@ -16,7 +27,7 @@ class ISTFT(nn.Module):
     The NOLA constraint is met as we trim padded samples anyway.
     """
 
-    def __init__(self, n_fft: int, hop_length: int, win_length: int, padding: Literal["same", "center"] = "same"):
+    def __init__(self, n_fft: int, hop_length: int, win_length: int, padding: Literal["same", "center"] = "same", no_window: bool = False):
         """
         Args:
             n_fft      - Size of Fourier transform
@@ -33,7 +44,7 @@ class ISTFT(nn.Module):
         self.padding = padding
         self.n_fft, self.hop_length, self.win_length = n_fft, hop_length, win_length
 
-        window = hann_window(win_length)
+        window = hann_window(win_length) if not no_window else rect_window(win_length)
         self.register_buffer("window", window)
 
     def forward(self, cspec: Tensor) -> Tensor:

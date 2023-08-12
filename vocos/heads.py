@@ -25,7 +25,7 @@ class FourierHead(nn.Module):
 class ISTFTHead(FourierHead):
     """ISTFT Head for predicting audio waveform through complex spectrogram."""
 
-    def __init__(self, dim: int, n_fft: int, hop_length: int, padding: None | Literal["center", "same"] = "same"):
+    def __init__(self, dim: int, n_fft: int, hop_length: int, padding: Literal["center", "same"] = "same", no_window: bool = False):
         """
         Args:
             dim        - Feature dimension size of input feature series
@@ -34,11 +34,12 @@ class ISTFTHead(FourierHead):
             padding    - Padding type specifier
         """
         super().__init__()
+
         # Dimension matching
         freq_x2 = n_fft + 2 # == 2 * (n_fft/2 + 1)
         self.out = torch.nn.Linear(dim, freq_x2)
         # complexSpec-to-wave
-        self.istft = ISTFT(n_fft=n_fft, hop_length=hop_length, win_length=n_fft, padding=padding)
+        self.istft = ISTFT(n_fft=n_fft, hop_length=hop_length, win_length=n_fft, padding=padding, no_window=no_window)
 
     def forward(self, x: FeatSeries) -> Wave:
         """

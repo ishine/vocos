@@ -6,23 +6,13 @@ import torchaudio
 from encodec import EncodecModel
 
 from vocos.modules import safe_log
-
-
-def rect_window(window_length: int, periodic: None | bool = True, *, dtype: None | torch.dtype = None, device: None | torch.device = None) -> Tensor:
-    """Generate Rectangular window."""
-    window = torch.ones([window_length,])
-    if dtype is not None:
-        window = window.to(dtype)
-    if device is not None:
-        window = window.to(device)
-
-    return window
+from vocos.spectral_ops import rect_window
 
 
 class FeatureExtractor(nn.Module):
     """Base class for feature extractors."""
 
-    def forward(self, audio: torch.Tensor, **kwargs) -> torch.Tensor:
+    def forward(self, audio: Tensor, **kwargs) -> Tensor:
         """
         Extract features from the given audio.
 
