@@ -25,7 +25,7 @@ class FourierHead(nn.Module):
 class ISTFTHead(FourierHead):
     """ISTFT Head for predicting audio waveform through complex spectrogram."""
 
-    def __init__(self, dim: int, n_fft: int, hop_length: int, padding: Literal["center", "same"] = "same", no_window: bool = False):
+    def __init__(self, dim: int, n_fft: int, hop_length: int, padding: Literal["center", "same", "causal"] = "same", no_window: bool = False):
         """
         Args:
             dim        - Feature dimension size of input feature series

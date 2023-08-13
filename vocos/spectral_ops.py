@@ -1,13 +1,15 @@
+"""Custom implementations of spectral operation."""
+
 from typing import Literal
 
 import numpy as np
-import scipy
+import scipy                                                                   # pyright: ignore [reportMissingTypeStubs]
 import torch
-from torch import nn, Tensor, ones, view_as_real, view_as_complex, hann_window
+from torch import nn, Tensor, ones, view_as_real, view_as_complex, hann_window # pylint: disable=no-name-in-module
 import torch.nn.functional as F
 
 
-def rect_window(window_length: int, periodic: None | bool = True, *, dtype: None | torch.dtype = None, device: None | torch.device = None) -> Tensor:
+def rect_window(window_length: int, periodic: None | bool = True, *, dtype: None | torch.dtype = None, device: None | torch.device = None) -> Tensor: # pylint: disable=no-member,unused-argument
     """Generate Rectangular window."""
     window = ones([window_length,])
     if dtype is not None:
@@ -27,7 +29,7 @@ class ISTFT(nn.Module):
     The NOLA constraint is met as we trim padded samples anyway.
     """
 
-    def __init__(self, n_fft: int, hop_length: int, win_length: int, padding: Literal["same", "center"] = "same", no_window: bool = False):
+    def __init__(self, n_fft: int, hop_length: int, win_length: int, padding: Literal["same", "center", "causal"] = "same", no_window: bool = False):
         """
         Args:
             n_fft      - Size of Fourier transform
@@ -35,11 +37,11 @@ class ISTFT(nn.Module):
             win_length - The size of window frame and STFT filter
             padding    - Type of padding
         """
-        super().__init__()
+        super().__init__() # pyright: ignore [reportUnknownMemberType]
 
         # Validation
-        if padding not in ["center", "same"]:
-            raise ValueError("Padding must be 'center' or 'same'.")
+        if padding not in ["center", "same", "causal"]:
+            raise ValueError("Padding must be 'center', 'same' or 'causal'.")
 
         self.padding = padding
         self.n_fft, self.hop_length, self.win_length = n_fft, hop_length, win_length
@@ -81,9 +83,17 @@ class ISTFT(nn.Module):
         ### :: (B=1, Segment, Frame) -> (1, 1, 1, T) -> (T,)
         window_envelope = F.fold(window_sq, output_size=(1, output_size), kernel_size=(1, self.win_length), stride=(1, self.hop_length)).squeeze()
         ### 'same' inverse padding
-        pad = (self.win_length - self.hop_length) // 2
-        y               =               y[:, pad:-pad]
-        window_envelope = window_envelope[   pad:-pad]
+        pad = self.win_length - self.hop_length
+        if self.padding == "same":
+            half_pad = pad // 2
+            y               =               y[:, half_pad:-half_pad]
+            window_envelope = window_envelope[   half_pad:-half_pad]
+        elif self.padding == "causal":
+            y               =               y[:, :-pad]
+            window_envelope = window_envelope[   :-pad]
+            window_envelope[0] = window_envelope[1] # Hack for NOLA
+        else:
+            raise RuntimeError(f"not supported padding type: {self.padding}")
         ### Check NOLA
         assert (window_envelope > 1e-11).all()
         ### Normalization
