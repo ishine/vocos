@@ -86,11 +86,14 @@ class ISTFT(nn.Module):
         pad = self.win_length - self.hop_length
         if self.padding == "same":
             half_pad = pad // 2
-            y               =               y[:, half_pad:-half_pad]
-            window_envelope = window_envelope[   half_pad:-half_pad]
+            pad_l = half_pad
+            pad_r = -half_pad if half_pad > 0 else None
+            y               =               y[:, pad_l:pad_r]
+            window_envelope = window_envelope[   pad_l:pad_r]
         elif self.padding == "causal":
-            y               =               y[:, :-pad]
-            window_envelope = window_envelope[   :-pad]
+            pad_r = -pad if pad > 0 else None
+            y               =               y[:, :pad_r]
+            window_envelope = window_envelope[   :pad_r]
             window_envelope[0] = window_envelope[1] # Hack for NOLA
         else:
             raise RuntimeError(f"not supported padding type: {self.padding}")
