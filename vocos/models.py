@@ -40,6 +40,7 @@ class VocosBackbone(Backbone):
         kernel_prenet:                 int   = 7,
         kernel_convnx:                 int   = 7,
         c:                             bool  = False,
+        learnable_norm:                bool  = True,
     ):
         """
         Args:
@@ -50,19 +51,23 @@ class VocosBackbone(Backbone):
             layer_scale_init_value - Initial value for layer scaling. Defaults to `1 / num_layers`.
             adanorm_num_embeddings - Number of embeddings for AdaLayerNorm. None means non-conditional model
         """
-        super().__init__()
+        super().__init__() # pyright: ignore [reportUnknownMemberType]
+
+        # Validation
+        if (adanorm_num_embeddings) and (not learnable_norm):
+            raise RuntimeError(f"Not supported argument combination: adanorm_num_embeddings {adanorm_num_embeddings} & learnable_norm {learnable_norm}")
 
         feat_i, feat_o = input_channels, dim
 
         self.embed = nn.Conv1d(feat_i, feat_o, kernel_prenet, padding="same")
         self.adanorm = adanorm_num_embeddings is not None
-        self.norm = AdaLayerNorm(adanorm_num_embeddings, feat_o, eps=1e-6) if adanorm_num_embeddings else nn.LayerNorm(feat_o, eps=1e-6)
+        self.norm = AdaLayerNorm(adanorm_num_embeddings, feat_o, eps=1e-6) if adanorm_num_embeddings else nn.LayerNorm(feat_o, eps=1e-6, elementwise_affine=learnable_norm)
         layer_scale_init_value = layer_scale_init_value or 1 / num_layers
         self.convnext = nn.ModuleList([
-            ConvNeXtBlock(dim=feat_o, intermediate_dim=intermediate_dim, kernel=kernel_convnx, layer_scale_init_value=layer_scale_init_value, adanorm_num_embeddings=adanorm_num_embeddings, c=c)
+            ConvNeXtBlock(dim=feat_o, intermediate_dim=intermediate_dim, kernel=kernel_convnx, layer_scale_init_value=layer_scale_init_value, adanorm_num_embeddings=adanorm_num_embeddings, c=c, learnable_norm=learnable_norm)
             for _ in range(num_layers)
         ])
-        self.final_layer_norm = nn.LayerNorm(feat_o, eps=1e-6)
+        self.final_layer_norm = nn.LayerNorm(feat_o, eps=1e-6, elementwise_affine=learnable_norm)
         self.apply(self._init_weights)
 
     def _init_weights(self, m):

@@ -19,6 +19,7 @@ class ConvNeXtBlock(nn.Module):
         layer_scale_init_value: None | float = None,
         adanorm_num_embeddings: None | int   = None,
         c:                      bool         = False,
+        learnable_norm:         bool         = True,
     ):
         """
         Args:
@@ -27,7 +28,7 @@ class ConvNeXtBlock(nn.Module):
             layer_scale_init_value - Initial value for the layer scale. None means no scaling.
             adanorm_num_embeddings - Number of embeddings for AdaLayerNorm. None means non-conditional LayerNorm.
         """
-        super().__init__()
+        super().__init__() # pyright: ignore [reportUnknownMemberType]
 
         feat_io, feat_h = dim, intermediate_dim
         # DepthwiseConv/Norm
@@ -35,7 +36,7 @@ class ConvNeXtBlock(nn.Module):
         if c:
             self.dwconv =  Conv1dEx(feat_io, feat_io, kernel, causal=True, padding="same", groups=feat_io)
         self.adanorm = adanorm_num_embeddings is not None
-        self.norm = AdaLayerNorm(adanorm_num_embeddings, feat_io, eps=1e-6) if adanorm_num_embeddings else nn.LayerNorm(feat_io, eps=1e-6)
+        self.norm = AdaLayerNorm(adanorm_num_embeddings, feat_io, eps=1e-6) if adanorm_num_embeddings else nn.LayerNorm(feat_io, eps=1e-6, elementwise_affine=learnable_norm)
         # PointwiseConv/GELU/PointwiseConv/γ
         self.pwconv1 = nn.Linear(feat_io, feat_h)
         self.act = nn.GELU()

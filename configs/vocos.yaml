@@ -51,6 +51,7 @@ model:
         kernel_prenet:       1
         kernel_convnx:       7
         c:               false
+        learnable_norm:   true
 
     head:
       class_path: vocos.heads.ISTFTHead
