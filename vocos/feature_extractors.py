@@ -27,6 +27,54 @@ class FeatureExtractor(nn.Module):
         raise NotImplementedError("Subclasses must implement the forward method.")
 
 
+class SpectrogramFeatures(FeatureExtractor):
+    """Wave-to-Spec feature extractor."""
+    def __init__(self, sample_rate:int=24000, n_fft:int=1024, hop_length:int=256, n_mels:int=0, padding:Literal["center", "same", "causal"]="center", no_window: bool = False):
+        super().__init__() # pyright: ignore [reportUnknownMemberType]
+
+        # Validation
+        if padding not in ["center", "same", "causal"]:
+            raise ValueError("Padding must be 'center' or 'same' or 'causal'.")
+        assert n_mels == 0, "n_mels is not supported now."
+
+        self.padding = padding
+        self.lin_spec = torchaudio.transforms.Spectrogram(
+            n_fft=n_fft,
+            hop_length=hop_length,
+            center=(padding=="center"), # Automatic center padding | Manual same/causal padding
+            power=1,
+            window_fn = hann_window if not no_window else rect_window,
+        )
+
+    def forward(self, audio, **kwargs):
+        """Convert to linear-frequency log-magnitude spectrogram.
+        
+        Args:
+            audio :: (B, T)
+        Returns:
+                  :: (B, Freq, Frame) - Spectrogram, Frame = T//hop ('same') | 
+        """
+        # Automatic center padding - Kernel axis align stride head, drop last
+        if   self.padding == "center":
+            pass
+        # Manual same padding - Kernel axis align with stride center, drop last
+        elif self.padding == "same":
+            pad = self.lin_spec.win_length - self.lin_spec.hop_length
+            half_pad = pad // 2
+            audio = F.pad(audio, (half_pad, half_pad), mode="reflect")
+        # Manual causal padding - DeltaKernel axis align with stride tail, drop last
+        elif self.padding == "causal":
+            pad = self.lin_spec.win_length - self.lin_spec.hop_length
+            audio = F.pad(audio, (     pad,        0), mode="reflect")
+        else:
+            raise RuntimeError(f"Not supported padding type in wave-to-mel: {self.padding}")
+
+        lin = self.lin_spec(audio)
+        lin_freq_log_amp_spec = safe_log(lin)
+        return lin_freq_log_amp_spec
+
+
+
 class MelSpectrogramFeatures(FeatureExtractor):
     """Wave-to-Mel feature extractor."""
     def __init__(self, sample_rate:int=24000, n_fft:int=1024, hop_length:int=256, n_mels:int=100, padding:Literal["center", "same", "causal"]="center", no_window: bool = False):
