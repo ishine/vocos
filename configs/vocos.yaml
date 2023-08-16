@@ -56,11 +56,12 @@ model:
     head:
       class_path: vocos.heads.ISTFTHead
       init_args:
-        dim:           512
-        n_fft:        1024
-        hop_length:    256
-        padding:    center
-        no_window:   false
+        dim:            512
+        n_fft:         1024
+        hop_length:     256
+        padding:     center
+        no_window:    false
+        act_istftnet: false
 
 trainer:
   logger:

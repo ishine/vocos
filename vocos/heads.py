@@ -1,4 +1,6 @@
+import math
 from typing import Literal
+
 import torch
 from torch import nn, clip, exp, cos, sin
 from torchaudio.functional.functional import _hz_to_mel, _mel_to_hz
@@ -25,7 +27,7 @@ class FourierHead(nn.Module):
 class ISTFTHead(FourierHead):
     """ISTFT Head for predicting audio waveform through complex spectrogram."""
 
-    def __init__(self, dim: int, n_fft: int, hop_length: int, padding: Literal["center", "same", "causal"] = "same", no_window: bool = False):
+    def __init__(self, dim: int, n_fft: int, hop_length: int, padding: Literal["center", "same", "causal"] = "same", no_window: bool = False, act_istftnet: bool = False):
         """
         Args:
             dim        - Feature dimension size of input feature series
@@ -40,6 +42,7 @@ class ISTFTHead(FourierHead):
         self.out = torch.nn.Linear(dim, freq_x2)
         # complexSpec-to-wave
         self.istft = ISTFT(n_fft=n_fft, hop_length=hop_length, win_length=n_fft, padding=padding, no_window=no_window)
+        self._act_istftnet = act_istftnet
 
     def forward(self, x: FeatSeries) -> Wave:
         """
@@ -55,7 +58,8 @@ class ISTFTHead(FourierHead):
 
         # feat-to-complexSpec :: (B, Feat=2*freq, Frame) -> 2 x (B, Freq, Frame) -> (B, Freq, Frame) - Magnitude (absolute value) scaling & Phase (argument) wrapping
         logabs, arg = x.chunk(2, dim=1)
-        complex_spec = clip(exp(logabs), max=1e2) * (cos(arg) + 1j * sin(arg))
+        phase = cos(arg) + 1j * sin(arg) if not self._act_istftnet else exp(1j * math.pi * sin(arg))
+        complex_spec = clip(exp(logabs), max=1e2) * phase
 
         # complexSpec-to-wave :: (B, Freq, Frame) -> (B, T) - iSTFT
         wave = self.istft(complex_spec)
