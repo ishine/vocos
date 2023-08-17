@@ -32,7 +32,11 @@ class VocosDataModule(LightningDataModule):
     def _set_dataloder(self, cfg: DataConfig, train: bool):
         if train and self._train_loader is None:
             dataset = VocosDataset(cfg, train=train)
-            self._train_loader = DataLoader(dataset, batch_size=cfg.batch_size, num_workers=cfg.num_workers, shuffle=train, pin_memory=True, persistent_workers=True)
+            if not cfg.cache_cuda:
+                self._train_loader = DataLoader(dataset, batch_size=cfg.batch_size, num_workers=cfg.num_workers, shuffle=train, pin_memory=True,  persistent_workers=True)
+            else:
+                self._train_loader = DataLoader(dataset, batch_size=cfg.batch_size, num_workers=0,               shuffle=train, pin_memory=False, persistent_workers=False)
+
         if not train and self._val_loader is None:
             dataset = VocosDataset(cfg, train=train)
             self._val_loader   = DataLoader(dataset, batch_size=cfg.batch_size, num_workers=cfg.num_workers, shuffle=train, pin_memory=True, persistent_workers=True)
