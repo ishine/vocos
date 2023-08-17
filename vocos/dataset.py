@@ -17,6 +17,7 @@ class DataConfig:
     num_samples:   int
     batch_size:    int
     num_workers:   int
+    cache_cuda:    bool = False
 
 
 class VocosDataModule(LightningDataModule):
@@ -55,6 +56,7 @@ class VocosDataset(Dataset):
         self.num_samples = cfg.num_samples
         self.train = train
         self._cache: list[None|tuple[Tensor, int]] = [None for _ in range(len(self.filelist))]
+        self._cache_cuda = cfg.cache_cuda
 
     def __len__(self) -> int:
         return len(self.filelist)
@@ -72,6 +74,8 @@ class VocosDataset(Dataset):
             # From disk and make cache
             audio_path = self.filelist[index]
             y, sr = torchaudio.load(audio_path)
+            if self._cache_cuda:
+                y = y.cuda()
             self._cache[index] = y, sr
         y, sr = self._cache[index]
         assert sr == self.sampling_rate
