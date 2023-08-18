@@ -10,6 +10,14 @@ from torch.utils.data import Dataset, DataLoader
 torch.set_num_threads(1)
 
 
+def adjust_max_volume(ipt: Tensor, volume_db: float) -> Tensor:
+    """Adjust maximum volume."""
+
+    desired_max_volume = 10**(volume_db/20)
+    max_volume = torch.max(torch.abs(ipt))
+    return desired_max_volume / max_volume * ipt
+
+
 @dataclass
 class DataConfig:
     filelist_path: str
@@ -85,8 +93,8 @@ class VocosDataset(Dataset):
         assert sr == self.sampling_rate
 
         # Gain randomize/standardize
-        gain = np.random.uniform(-1, -6) if self.train else -3
-        y, _ = torchaudio.sox_effects.apply_effects_tensor(y, sr, [["norm", f"{gain:.2f}"]])
+        max_volume_db = np.random.uniform(-1, -6) if self.train else -3
+        y, _ = adjust_max_volume(y, max_volume_db)
 
         # Padding & Clipping
         if y.size(-1) < self.num_samples:
