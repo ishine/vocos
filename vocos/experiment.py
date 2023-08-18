@@ -13,6 +13,7 @@ from vocos.helpers import plot_spectrogram_to_numpy
 from vocos.loss import DiscriminatorLoss, GeneratorLoss, FeatureMatchingLoss, MelSpecReconstructionLoss
 from vocos.models import Backbone
 from vocos.modules import safe_log
+from vocos.spectral_ops import rect_window
 
 
 class VocosExp(pl.LightningModule):
@@ -29,6 +30,8 @@ class VocosExp(pl.LightningModule):
         evaluate_utmos:        bool  = False,
         evaluate_pesq:         bool  = False,
         evaluate_periodicty:   bool  = False,
+        n_fft:                 int   = 1024,
+        hop_length:            int   =  256,
     ):
         """
         Args:
@@ -52,6 +55,8 @@ class VocosExp(pl.LightningModule):
         self.head              = head
         self.multiperioddisc   = MultiPeriodDiscriminator()
         self.multiresddisc     = MultiResolutionDiscriminator()
+        self.stft_forward      = torchaudio.transforms.Spectrogram(       n_fft=n_fft, hop_length=hop_length, center=True, window_fn=rect_window, power=None)
+        self.stft_inverse      = torchaudio.transforms.InverseSpectrogram(n_fft=n_fft, hop_length=hop_length, center=True, window_fn=rect_window)
 
         # Loss
         self.disc_loss          = DiscriminatorLoss()
@@ -91,6 +96,12 @@ class VocosExp(pl.LightningModule):
     def training_step(self, batch, batch_idx, optimizer_idx, **kwargs):
 
         audio_input = batch
+
+        # Noise gate - On CUDA preprocessing
+        with torch.no_grad():
+            cspec = self.stft_forward(audio_input)
+            cspec[abs(cspec)<1e-2] *= 0
+            audio_input = self.stft_inverse(cspec)
 
         # D
         if optimizer_idx == 0:

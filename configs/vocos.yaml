@@ -33,6 +33,10 @@ model:
     evaluate_pesq:       false
     evaluate_periodicty: false
 
+    # Noise gate
+    n_fft:      1024
+    hop_length:  256
+
     feature_extractor:
       class_path: vocos.feature_extractors.MelSpectrogramFeatures
       init_args:

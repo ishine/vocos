@@ -58,8 +58,11 @@ class ISTFTHead(FourierHead):
 
         # feat-to-complexSpec :: (B, Feat=2*freq, Frame) -> 2 x (B, Freq, Frame) -> (B, Freq, Frame) - Magnitude (absolute value) scaling & Phase (argument) wrapping
         logabs, arg = x.chunk(2, dim=1)
+        ## mag ∈ {0, [1e-2, 1e2]}
+        mag = clip(exp(logabs), max=1e2)
+        mag[mag<1e-2] = 0
         phase = cos(arg) + 1j * sin(arg) if not self._act_istftnet else exp(1j * math.pi * sin(arg))
-        complex_spec = clip(exp(logabs), max=1e2) * phase
+        complex_spec = mag * phase
 
         # complexSpec-to-wave :: (B, Freq, Frame) -> (B, T) - iSTFT
         wave = self.istft(complex_spec)
