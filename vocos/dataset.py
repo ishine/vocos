@@ -94,7 +94,7 @@ class VocosDataset(Dataset):
 
         # Gain randomize/standardize
         max_volume_db = np.random.uniform(-1, -6) if self.train else -3
-        y, _ = adjust_max_volume(y, max_volume_db)
+        y = adjust_max_volume(y, max_volume_db)
 
         # Padding & Clipping
         if y.size(-1) < self.num_samples:
