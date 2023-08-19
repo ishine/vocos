@@ -37,6 +37,9 @@ model:
     n_fft:      1024
     hop_length:  256
 
+    # Optims
+    warmup_step: 0
+
     feature_extractor:
       class_path: vocos.feature_extractors.MelSpectrogramFeatures
       init_args:

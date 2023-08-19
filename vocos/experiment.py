@@ -32,6 +32,7 @@ class VocosExp(pl.LightningModule):
         evaluate_periodicty:   bool  = False,
         n_fft:                 int   = 1024,
         hop_length:            int   =  256,
+        warmup_step:           int   =    0,
     ):
         """
         Args:
@@ -81,8 +82,8 @@ class VocosExp(pl.LightningModule):
         opt_gen  = torch.optim.AdamW(gen_params,  lr=self.hparams.initial_learning_rate)
 
         max_steps = self.trainer.max_steps // 2  # Max steps per optimizer
-        scheduler_disc = transformers.get_cosine_schedule_with_warmup(opt_disc, num_warmup_steps=0, num_training_steps=max_steps)
-        scheduler_gen  = transformers.get_cosine_schedule_with_warmup(opt_gen,  num_warmup_steps=0, num_training_steps=max_steps)
+        scheduler_disc = transformers.get_cosine_schedule_with_warmup(opt_disc, num_warmup_steps=self.hparams.warmup_step, num_training_steps=max_steps)
+        scheduler_gen  = transformers.get_cosine_schedule_with_warmup(opt_gen,  num_warmup_steps=self.hparams.warmup_step, num_training_steps=max_steps)
 
         return (
             [opt_disc, opt_gen],
