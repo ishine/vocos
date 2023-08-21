@@ -214,7 +214,8 @@ class VocosExp(pl.LightningModule):
             audio_gts, audio_preds = batch_0["audio_input"], batch_0["audio_pred"]
             for i in range(audio_gts.size()[0]):
                 audio_in, audio_pred = audio_gts[i], audio_preds[i]
-                self.logger.experiment.add_audio(f"val/gt_{i}",     audio_in.data.cpu().numpy(), self.global_step, self.hparams.sample_rate)
+                if self.global_step < 100:
+                    self.logger.experiment.add_audio(f"val/gt/{i}",     audio_in.data.cpu().numpy(), self.global_step, self.hparams.sample_rate)
                 self.logger.experiment.add_audio(f"val/pred_{i}", audio_pred.data.cpu().numpy(), self.global_step, self.hparams.sample_rate)
                 mel_target = safe_log(self.melspec_loss.mel_spec(audio_in))
                 mel_hat    = safe_log(self.melspec_loss.mel_spec(audio_pred))
