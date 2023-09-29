@@ -1,75 +1,105 @@
+"""Custom implementations of spectral operation."""
+
+from typing import Literal
+
 import numpy as np
-import scipy
+import scipy                                                                   # pyright: ignore [reportMissingTypeStubs]
 import torch
-from torch import nn, view_as_real, view_as_complex
+from torch import nn, Tensor, ones, view_as_real, view_as_complex, hann_window # pylint: disable=no-name-in-module
+import torch.nn.functional as F
+
+
+def rect_window(window_length: int, periodic: None | bool = True, *, dtype: None | torch.dtype = None, device: None | torch.device = None) -> Tensor: # pylint: disable=no-member,unused-argument
+    """Generate Rectangular window."""
+    window = ones([window_length,])
+    if dtype is not None:
+        window = window.to(dtype)
+    if device is not None:
+        window = window.to(device)
+
+    return window
 
 
 class ISTFT(nn.Module):
     """
-    Custom implementation of ISTFT since torch.istft doesn't allow custom padding (other than `center=True`) with
-    windowing. This is because the NOLA (Nonzero Overlap Add) check fails at the edges.
+    Custom implementation of ISTFT since torch.istft doesn't allow custom padding (other than `center=True`) with windowing.
+    This is because the NOLA (Nonzero Overlap Add) check fails at the edges.
     See issue: https://github.com/pytorch/pytorch/issues/62323
     Specifically, in the context of neural vocoding we are interested in "same" padding analogous to CNNs.
     The NOLA constraint is met as we trim padded samples anyway.
-
-    Args:
-        n_fft (int): Size of Fourier transform.
-        hop_length (int): The distance between neighboring sliding window frames.
-        win_length (int): The size of window frame and STFT filter.
-        padding (str, optional): Type of padding. Options are "center" or "same". Defaults to "same".
     """
 
-    def __init__(self, n_fft: int, hop_length: int, win_length: int, padding: str = "same"):
-        super().__init__()
-        if padding not in ["center", "same"]:
-            raise ValueError("Padding must be 'center' or 'same'.")
+    def __init__(self, n_fft: int, hop_length: int, win_length: int, padding: Literal["same", "center", "causal"] = "same", no_window: bool = False):
+        """
+        Args:
+            n_fft      - Size of Fourier transform
+            hop_length - The distance between neighboring sliding window frames
+            win_length - The size of window frame and STFT filter
+            padding    - Type of padding
+        """
+        super().__init__() # pyright: ignore [reportUnknownMemberType]
+
+        # Validation
+        if padding not in ["center", "same", "causal"]:
+            raise ValueError("Padding must be 'center', 'same' or 'causal'.")
+
         self.padding = padding
-        self.n_fft = n_fft
-        self.hop_length = hop_length
-        self.win_length = win_length
-        window = torch.hann_window(win_length)
+        self.n_fft, self.hop_length, self.win_length = n_fft, hop_length, win_length
+
+        window = hann_window(win_length) if not no_window else rect_window(win_length)
         self.register_buffer("window", window)
 
-    def forward(self, spec: torch.Tensor) -> torch.Tensor:
+    def forward(self, cspec: Tensor) -> Tensor:
         """
         Compute the Inverse Short Time Fourier Transform (ISTFT) of a complex spectrogram.
 
         Args:
-            spec (Tensor): Input complex spectrogram of shape (B, N, T), where B is the batch size,
-                            N is the number of frequency bins, and T is the number of time frames.
-
+            cspec :: (B, Freq, Frame) - Complex spectrogram
         Returns:
-            Tensor: Reconstructed time-domain signal of shape (B, L), where L is the length of the output signal.
+                  :: (B, T)           - Reconstructed time-domain signal
         """
+
+        # [center] (PyTorch iSTFT, early return)
         if self.padding == "center":
             # Fallback to pytorch native implementation
-            return torch.istft(spec, self.n_fft, self.hop_length, self.win_length, self.window, center=True)
-        elif self.padding == "same":
-            pad = (self.win_length - self.hop_length) // 2
-        else:
-            raise ValueError("Padding must be 'center' or 'same'.")
+            return torch.istft(cspec, self.n_fft, self.hop_length, self.win_length, self.window, center=True)
 
-        assert spec.dim() == 3, "Expected a 3D tensor as input"
-        B, N, T = spec.shape
+        # [same|causal]
+        assert cspec.dim() == 3, "Expected a 3D tensor as input"
+        n_frame = cspec.size()[2]
 
-        # Inverse FFT
-        ifft = torch.fft.irfft(spec, self.n_fft, dim=1, norm="backward")
+        ## spectrum-to-segment :: (B, Freq, Frame) -> (B, Segment, Frame) - iFT
+        ifft = torch.fft.irfft(cspec, self.n_fft, dim=1, norm="backward")
+
+        ## segments-to-wave :: (B, Segment, Frame) -> (B, T) - OverLap and Add
         ifft = ifft * self.window[None, :, None]
+        output_size = (n_frame - 1) * self.hop_length + self.win_length
+        y = F.fold(ifft, output_size=(1, output_size), kernel_size=(1, self.win_length), stride=(1, self.hop_length))
+        y = y[:, 0, 0, :]
 
-        # Overlap and Add
-        output_size = (T - 1) * self.hop_length + self.win_length
-        y = torch.nn.functional.fold(
-            ifft, output_size=(1, output_size), kernel_size=(1, self.win_length), stride=(1, self.hop_length),
-        )[:, 0, 0, pad:-pad]
-
-        # Window envelope
-        window_sq = self.window.square().expand(1, T, -1).transpose(1, 2)
-        window_envelope = torch.nn.functional.fold(
-            window_sq, output_size=(1, output_size), kernel_size=(1, self.win_length), stride=(1, self.hop_length),
-        ).squeeze()[pad:-pad]
-
-        # Normalize
+        ## correction - Normalization by window envelope
+        ### :: (Segment,) -> (B=1, Frame, Segment) -> (B=1, Segment, Frame)
+        window_sq = self.window.square().expand(1, n_frame, -1).transpose(1, 2)
+        ### :: (B=1, Segment, Frame) -> (1, 1, 1, T) -> (T,)
+        window_envelope = F.fold(window_sq, output_size=(1, output_size), kernel_size=(1, self.win_length), stride=(1, self.hop_length)).squeeze()
+        ### 'same' inverse padding
+        pad = self.win_length - self.hop_length
+        if self.padding == "same":
+            half_pad = pad // 2
+            pad_l = half_pad
+            pad_r = -half_pad if half_pad > 0 else None
+            y               =               y[:, pad_l:pad_r]
+            window_envelope = window_envelope[   pad_l:pad_r]
+        elif self.padding == "causal":
+            pad_r = -pad if pad > 0 else None
+            y               =               y[:, :pad_r]
+            window_envelope = window_envelope[   :pad_r]
+            window_envelope[0] = window_envelope[1] # Hack for NOLA
+        else:
+            raise RuntimeError(f"not supported padding type: {self.padding}")
+        ### Check NOLA
         assert (window_envelope > 1e-11).all()
+        ### Normalization
         y = y / window_envelope
 
         return y

@@ -1,17 +1,19 @@
-from typing import List
+from typing import List, Literal
 
 import torch
+from torch import nn, Tensor, hann_window
+import torch.nn.functional as F
 import torchaudio
 from encodec import EncodecModel
-from torch import nn
 
 from vocos.modules import safe_log
+from vocos.spectral_ops import rect_window
 
 
 class FeatureExtractor(nn.Module):
     """Base class for feature extractors."""
 
-    def forward(self, audio: torch.Tensor, **kwargs) -> torch.Tensor:
+    def forward(self, audio: Tensor, **kwargs) -> Tensor:
         """
         Extract features from the given audio.
 
@@ -25,28 +27,100 @@ class FeatureExtractor(nn.Module):
         raise NotImplementedError("Subclasses must implement the forward method.")
 
 
+class SpectrogramFeatures(FeatureExtractor):
+    """Wave-to-Spec feature extractor."""
+    def __init__(self, sample_rate:int=24000, n_fft:int=1024, hop_length:int=256, n_mels:int=0, padding:Literal["center", "same", "causal"]="center", no_window: bool = False):
+        super().__init__() # pyright: ignore [reportUnknownMemberType]
+
+        # Validation
+        if padding not in ["center", "same", "causal"]:
+            raise ValueError("Padding must be 'center' or 'same' or 'causal'.")
+        assert n_mels == 0, "n_mels is not supported now."
+
+        self.padding = padding
+        self.lin_spec = torchaudio.transforms.Spectrogram(
+            n_fft=n_fft,
+            hop_length=hop_length,
+            center=(padding=="center"), # Automatic center padding | Manual same/causal padding
+            power=1,
+            window_fn = hann_window if not no_window else rect_window,
+        )
+
+    def forward(self, audio, **kwargs):
+        """Convert to linear-frequency log-magnitude spectrogram.
+        
+        Args:
+            audio :: (B, T)
+        Returns:
+                  :: (B, Freq, Frame) - Spectrogram, Frame = T//hop ('same') | 
+        """
+        # Automatic center padding - Kernel axis align stride head, drop last
+        if   self.padding == "center":
+            pass
+        # Manual same padding - Kernel axis align with stride center, drop last
+        elif self.padding == "same":
+            pad = self.lin_spec.win_length - self.lin_spec.hop_length
+            half_pad = pad // 2
+            audio = F.pad(audio, (half_pad, half_pad), mode="reflect")
+        # Manual causal padding - DeltaKernel axis align with stride tail, drop last
+        elif self.padding == "causal":
+            pad = self.lin_spec.win_length - self.lin_spec.hop_length
+            audio = F.pad(audio, (     pad,        0), mode="reflect")
+        else:
+            raise RuntimeError(f"Not supported padding type in wave-to-mel: {self.padding}")
+
+        lin = self.lin_spec(audio)
+        lin_freq_log_amp_spec = safe_log(lin)
+        return lin_freq_log_amp_spec
+
+
+
 class MelSpectrogramFeatures(FeatureExtractor):
-    def __init__(self, sample_rate=24000, n_fft=1024, hop_length=256, n_mels=100, padding="center"):
+    """Wave-to-Mel feature extractor."""
+    def __init__(self, sample_rate:int=24000, n_fft:int=1024, hop_length:int=256, n_mels:int=100, padding:Literal["center", "same", "causal"]="center", no_window: bool = False):
         super().__init__()
-        if padding not in ["center", "same"]:
-            raise ValueError("Padding must be 'center' or 'same'.")
+
+        # Validation
+        if padding not in ["center", "same", "causal"]:
+            raise ValueError("Padding must be 'center' or 'same' or 'causal'.")
+
         self.padding = padding
         self.mel_spec = torchaudio.transforms.MelSpectrogram(
             sample_rate=sample_rate,
             n_fft=n_fft,
             hop_length=hop_length,
             n_mels=n_mels,
-            center=padding == "center",
+            center=(padding=="center"), # Automatic center padding | Manual same/causal padding
             power=1,
+            window_fn = hann_window if not no_window else rect_window,
         )
 
     def forward(self, audio, **kwargs):
-        if self.padding == "same":
+        """Convert to mel-frequency log-magnitude spectrogram.
+        
+        Args:
+            audio :: (B, T)
+        Returns:
+                  :: (B, Freq, Frame) - Spectrogram, Frame = T//hop ('same') | 
+        """
+        # Automatic center padding - Kernel axis align stride head, drop last
+        if   self.padding == "center":
+            pass
+        # Manual same padding - Kernel axis align with stride center, drop last
+        elif self.padding == "same":
             pad = self.mel_spec.win_length - self.mel_spec.hop_length
-            audio = torch.nn.functional.pad(audio, (pad // 2, pad // 2), mode="reflect")
+            half_pad = pad // 2
+            audio = F.pad(audio, (half_pad, half_pad), mode="reflect")
+        # Manual causal padding - DeltaKernel axis align with stride tail, drop last
+        elif self.padding == "causal":
+            pad = self.mel_spec.win_length - self.mel_spec.hop_length
+            audio = F.pad(audio, (     pad,        0), mode="reflect")
+        else:
+            raise RuntimeError(f"Not supported padding type in wave-to-mel: {self.padding}")
+
         mel = self.mel_spec(audio)
-        features = safe_log(mel)
-        return features
+        mel_freq_log_amp_spec = safe_log(mel)
+        return mel_freq_log_amp_spec
 
 
 class EncodecFeatures(FeatureExtractor):
@@ -55,8 +129,12 @@ class EncodecFeatures(FeatureExtractor):
         encodec_model: str = "encodec_24khz",
         bandwidths: List[float] = [1.5, 3.0, 6.0, 12.0],
         train_codebooks: bool = False,
+        no_window: bool = False,
     ):
         super().__init__()
+
+        assert not no_window, "`no_window` is not supported yet."
+
         if encodec_model == "encodec_24khz":
             encodec = EncodecModel.encodec_model_24khz
         elif encodec_model == "encodec_48khz":

@@ -1,12 +1,14 @@
+from __future__ import annotations
 from typing import Tuple, Any, Union, Dict
 
 import torch
 import yaml
 from huggingface_hub import hf_hub_download
-from torch import nn
+from torch import nn, Tensor
 from vocos.feature_extractors import FeatureExtractor, EncodecFeatures
 from vocos.heads import FourierHead
 from vocos.models import Backbone
+from vocos.domain import UnitSeries, Wave
 
 
 def instantiate_class(args: Union[Any, Tuple[Any, ...]], init: Dict[str, Any]) -> Any:
@@ -29,42 +31,38 @@ def instantiate_class(args: Union[Any, Tuple[Any, ...]], init: Dict[str, Any]) -
 
 
 class Vocos(nn.Module):
-    """
-    The Vocos class represents a Fourier-based neural vocoder for audio synthesis.
-    This class is primarily designed for inference, with support for loading from pretrained
-    model checkpoints. It consists of three main components: a feature extractor,
-    a backbone, and a head.
+    """Vocos inference model.
+    Model load, Reconstruction (wave-to-unit-to-wave), Vocoding (unit-to-wave) and Unitnize(code-to-unit) are supported.
     """
 
-    def __init__(
-        self, feature_extractor: FeatureExtractor, backbone: Backbone, head: FourierHead,
-    ):
+    def __init__(self, feature_extractor: FeatureExtractor, backbone: Backbone, head: FourierHead):
         super().__init__()
         self.feature_extractor = feature_extractor
         self.backbone = backbone
         self.head = head
 
     @classmethod
-    def from_hparams(cls, config_path: str) -> "Vocos":
-        """
-        Class method to create a new Vocos model instance from hyperparameters stored in a yaml configuration file.
+    def from_hparams(cls, config_path: str) -> Vocos:
+        """Create a instance from hyperparameters stored in a yaml configuration file (states are not restored).
         """
         with open(config_path, "r") as f:
             config = yaml.safe_load(f)
         feature_extractor = instantiate_class(args=(), init=config["feature_extractor"])
-        backbone = instantiate_class(args=(), init=config["backbone"])
-        head = instantiate_class(args=(), init=config["head"])
+        backbone          = instantiate_class(args=(), init=config["backbone"])
+        head              = instantiate_class(args=(), init=config["head"])
         model = cls(feature_extractor=feature_extractor, backbone=backbone, head=head)
         return model
 
     @classmethod
-    def from_pretrained(self, repo_id: str) -> "Vocos":
+    def from_pretrained(self, repo_id: str) -> Vocos:
+        """Create a instance from a pre-trained model stored in the Hugging Face model hub.
         """
-        Class method to create a new Vocos model instance from a pre-trained model stored in the Hugging Face model hub.
-        """
+        # Instantiate
         config_path = hf_hub_download(repo_id=repo_id, filename="config.yaml")
-        model_path = hf_hub_download(repo_id=repo_id, filename="pytorch_model.bin")
         model = self.from_hparams(config_path)
+
+        # Restore states
+        model_path = hf_hub_download(repo_id=repo_id, filename="pytorch_model.bin")
         state_dict = torch.load(model_path, map_location="cpu")
         if isinstance(model.feature_extractor, EncodecFeatures):
             encodec_parameters = {
@@ -73,62 +71,50 @@ class Vocos(nn.Module):
             }
             state_dict.update(encodec_parameters)
         model.load_state_dict(state_dict)
+
+        # Switch mode
         model.eval()
+
         return model
 
     @torch.inference_mode()
-    def forward(self, audio_input: torch.Tensor, **kwargs: Any) -> torch.Tensor:
-        """
-        Method to run a copy-synthesis from audio waveform. The feature extractor first processes the audio input,
-        which is then passed through the backbone and the head to reconstruct the audio output.
+    def forward(self, audio_input: Tensor, **kwargs: Any) -> Wave:
+        """Run a copy-synthesis from audio waveform.
+
+        The feature extractor first processes the audio input, which is then passed through the backbone and the head to reconstruct the audio output.
 
         Args:
-            audio_input (Tensor): The input tensor representing the audio waveform of shape (B, T),
-                                        where B is the batch size and L is the waveform length.
-
-
+            audio_input :: (B, T) - Input audio waveform
         Returns:
-            Tensor: The output tensor representing the reconstructed audio waveform of shape (B, T).
+                        :: (B, T) - Reconstructed audio
         """
-        features = self.feature_extractor(audio_input, **kwargs)
-        audio_output = self.decode(features, **kwargs)
-        return audio_output
+        return self.decode(self.feature_extractor(audio_input, **kwargs), **kwargs)
 
     @torch.inference_mode()
-    def decode(self, features_input: torch.Tensor, **kwargs: Any) -> torch.Tensor:
-        """
-        Method to decode audio waveform from already calculated features. The features input is passed through
-        the backbone and the head to reconstruct the audio output.
+    def decode(self, features_input: UnitSeries, **kwargs: Any) -> Wave:
+        """Decode audio waveform from acoustic features, backbone + head.
 
         Args:
-            features_input (Tensor): The input tensor of features of shape (B, C, L), where B is the batch size,
-                                     C denotes the feature dimension, and L is the sequence length.
-
+            features_input :: (B, Feat, Frame) - Feature series
         Returns:
-            Tensor: The output tensor representing the reconstructed audio waveform of shape (B, T).
+                           :: (B, T)           - Reconstructed audio
         """
-        x = self.backbone(features_input, **kwargs)
-        audio_output = self.head(x)
-        return audio_output
+        return self.head(self.backbone(features_input, **kwargs))
 
     @torch.inference_mode()
-    def codes_to_features(self, codes: torch.Tensor) -> torch.Tensor:
+    def codes_to_features(self, codes: Tensor) -> Tensor:
         """
-        Transforms an input sequence of discrete tokens (codes) into feature embeddings using the feature extractor's
-        codebook weights.
+        Transforms an input sequence of discrete tokens (codes) into feature embeddings using the feature extractor's codebook weights.
 
         Args:
-            codes (Tensor): The input tensor. Expected shape is (K, L) or (K, B, L),
-                            where K is the number of codebooks, B is the batch size and L is the sequence length.
+            codes :: (K, Frame) | (K, B, Frame) - Code series, K is the number of codebooks
 
         Returns:
-            Tensor: Features of shape (B, C, L), where B is the batch size, C denotes the feature dimension,
-                    and L is the sequence length.
+                  :: (B, Feat, Frame)           - Feature series
         """
-        assert isinstance(
-            self.feature_extractor, EncodecFeatures
-        ), "Feature extractor should be an instance of EncodecFeatures"
+        assert isinstance(self.feature_extractor, EncodecFeatures), "Feature extractor should be an instance of EncodecFeatures"
 
+        # Reshape :: (K, Frame) -> (K, B=1, Frame)
         if codes.dim() == 2:
             codes = codes.unsqueeze(1)
 

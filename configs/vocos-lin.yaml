@@ -32,29 +32,34 @@ model:
     evaluate_periodicty: false
 
     feature_extractor:
-      class_path: vocos.feature_extractors.MelSpectrogramFeatures
+      class_path: vocos.feature_extractors.SpectrogramFeatures
       init_args:
         sample_rate: 24000
         n_fft:        1024
         hop_length:    256
-        n_mels:        100
+        n_mels:          0
         padding:    center
         no_window:   false
 
     backbone:
-      class_path: vocos.models.VocosResNetBackbone
+      class_path: vocos.models.VocosBackbone
       init_args:
-        input_channels: 100
-        dim:            512
-        num_blocks:       3
+        input_channels:    100
+        dim:               512
+        intermediate_dim: 1536
+        num_layers:          8
+        kernel_prenet:       1
+        kernel_convnx:       7
+        c:               false
 
     head:
       class_path: vocos.heads.ISTFTHead
       init_args:
-        dim:         512
-        n_fft:      1024
-        hop_length:  256
-        padding:  center
+        dim:           512
+        n_fft:        1024
+        hop_length:    256
+        padding:    center
+        no_window:   false
 
 trainer:
   logger:
